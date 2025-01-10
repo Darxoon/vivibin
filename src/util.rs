@@ -28,7 +28,7 @@ impl<'a, R: Seek> Drop for SeekGuard<'a, R> {
 #[macro_export]
 macro_rules! scoped_reader_pos {
     ($reader:ident) => {
-        let guard = crate::SeekGuard::new($reader)?;
+        let guard = ::vivibin::util::SeekGuard::new($reader)?;
         let $reader = &mut *guard.seek;
     };
 }
@@ -36,7 +36,7 @@ macro_rules! scoped_reader_pos {
 #[macro_export]
 macro_rules! scoped_writer_pos {
     ($writer:ident) => {
-        let guard = crate::SeekGuard::new($writer)?;
+        let guard = ::vivibin::util::SeekGuard::new($writer)?;
         let $writer = &mut *guard.seek;
     };
 }
