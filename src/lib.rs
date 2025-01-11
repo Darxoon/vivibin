@@ -42,7 +42,7 @@ pub trait ReadDomain: Copy {
     type Pointer;
     
     fn endianness(self) -> Endianness;
-    fn read<T: Clone + 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
+    fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
 }
 
 pub trait Readable: Sized {

@@ -1,4 +1,4 @@
-use std::{any::TypeId, io::Cursor};
+use std::{any::TypeId, io::Cursor, mem::{transmute, ManuallyDrop}, ptr::read, time::Instant};
 
 use anyhow::Result;
 use vivibin::{scoped_reader_pos, Endianness, ReadDomain, Readable, Reader};
@@ -70,7 +70,7 @@ impl ReadDomain for FormatCgfx {
         Endianness::Little
     }
     
-    fn read<T: Clone + 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
+    fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
         let result: Option<T>;
         let type_id = TypeId::of::<T>();
         
@@ -78,21 +78,21 @@ impl ReadDomain for FormatCgfx {
         // this should also hopefully? get otimized out
         // at least once TypeId::of becomes a stable const fn
         if type_id == TypeId::of::<i32>() {
-            let value = Self::read_i32(reader)?;
+            let value = ManuallyDrop::new(Self::read_i32(reader)?);
             
-            result = Some(unsafe { (*((&value as *const i32) as *const T)).clone() });
+            result = Some(unsafe { read(transmute::<&i32, &T>(&value)) });
         } else if type_id == TypeId::of::<u32>() {
-            let value = Self::read_u32(reader)?;
+            let value = ManuallyDrop::new(Self::read_u32(reader)?);
             
-            result = Some(unsafe { (*((&value as *const u32) as *const T)).clone() });
+            result = Some(unsafe { read(transmute::<&u32, &T>(&value)) });
         } else if type_id == TypeId::of::<Pointer>() {
-            let value = Self::read_relative_ptr(reader)?;
+            let value = ManuallyDrop::new(Self::read_relative_ptr(reader)?);
             
-            result = Some(unsafe { (*((&value as *const Pointer) as *const T)).clone() });
+            result = Some(unsafe { read(transmute::<&Pointer, &T>(&value)) });
         } else if type_id == TypeId::of::<String>() {
-            let value = Self::read_str(reader)?;
+            let value = ManuallyDrop::new(Self::read_str(reader)?);
             
-            result = Some(unsafe { (*((&value as *const String) as *const T)).clone() });
+            result = Some(unsafe { read(transmute::<&String, &T>(&value)) });
         } else {
             result = None;
         }
