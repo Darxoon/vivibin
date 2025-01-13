@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader};
+use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteDomain, Writer};
 
 // numbers
 macro_rules! impl_rw_number {
@@ -14,6 +14,18 @@ macro_rules! impl_rw_number {
                     Endianness::Big => $type::from_be_bytes(buf),
                 };
                 Ok(result)
+            }
+        }
+        
+        impl Writable for $type {
+            fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
+                let bytes = match domain.endianness() {
+                    Endianness::Little => self.to_le_bytes(),
+                    Endianness::Big => self.to_be_bytes(),
+                };
+                
+                writer.write(&bytes)?;
+                Ok(())
             }
         }
     };
@@ -57,4 +69,11 @@ impl ReadableWithArgs<BoolSize> for bool {
     }
 }
 
+// TODO: allow specifying size
+impl Writable for bool {
+    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
+        (*self as u32).to_writer(writer, domain)?;
+        Ok(())
+    }
+}
 

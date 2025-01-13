@@ -81,11 +81,15 @@ pub enum Endianness {
     // Native?
 }
 
-pub trait ReadDomain: Copy {
+pub trait EndianSpecific {
+    fn endianness(self) -> Endianness;
+}
+
+// reading / parsing
+pub trait ReadDomain: Copy + EndianSpecific {
     type Flags;
     type Pointer;
     
-    fn endianness(self) -> Endianness;
     // TODO: consider making an error type for 'no read implementation' rather than using Options (see silly return types below for why)
     fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
     fn read_args<T: 'static, U>(self, reader: &mut impl Reader, args: U) -> Result<Option<T>>;
@@ -103,5 +107,20 @@ pub trait Readable: Sized {
 
 pub trait ReadableWithArgs<T>: Sized {
     fn from_reader_args(reader: &mut impl Reader, domain: impl ReadDomain, args: T) -> Result<Self>;
+}
+
+// writing / serializing
+pub trait WriteDomain: Copy + EndianSpecific {
+    type Flags;
+    type Pointer;
+    
+    fn write<T: 'static>(self, writer: &mut impl Writer, value: &T) -> Result<Option<()>>;
+    
+    // TODO: writing with args
+    // TODO: boxed serializing
+}
+
+pub trait Writable: Sized {
+    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()>;
 }
 
