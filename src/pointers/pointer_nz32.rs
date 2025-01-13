@@ -3,7 +3,7 @@ use std::{fmt::Debug, io::{Read, Seek, Write}, num::NonZeroU32, ops::{Add, Sub}}
 use anyhow::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::{ReadDomain, Readable, Reader, Writable, WriteDomain, Writer};
+use crate::{ReadDomain, Readable, Reader, Writable, WriteCtx, WriteDomain};
 
 macro_rules! from_type {
     ($t:ident, $from:ty) => {
@@ -133,8 +133,8 @@ impl Readable for PointerNonZero32 {
 }
 
 impl Writable for PointerNonZero32 {
-    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
-        self.0.get().to_writer(writer, domain)?;
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+        self.0.get().to_writer(ctx, domain)?;
         Ok(())
     }
 }
@@ -149,9 +149,9 @@ impl Readable for Option<PointerNonZero32> {
 }
 
 impl Writable for Option<PointerNonZero32> {
-    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
         let value: u32 = self.map(|x| x.0.get()).unwrap_or(0);
-        value.to_writer(writer, domain)?;
+        value.to_writer(ctx, domain)?;
         Ok(())
     }
 }

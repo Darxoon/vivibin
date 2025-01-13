@@ -3,7 +3,7 @@ use std::{fmt::Debug, io::{Read, Seek, Write}, ops::{Add, Sub}};
 use anyhow::Result;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::{ReadDomain, Readable, Reader, Writable, WriteDomain, Writer};
+use crate::{ReadDomain, Readable, Reader, Writable, WriteDomain, WriteCtx};
 
 macro_rules! from_type {
     ($t:ident, $from:ty) => {
@@ -131,7 +131,7 @@ impl Readable for PointerZero32 {
 }
 
 impl Writable for PointerZero32 {
-    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
+    fn to_writer(&self, writer: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
         self.0.to_writer(writer, domain)?;
         Ok(())
     }

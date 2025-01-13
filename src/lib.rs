@@ -1,4 +1,4 @@
-use std::{io::{Read, Seek, SeekFrom, Write}, str::from_utf8};
+use std::{cmp::Eq, collections::HashMap, default::Default, hash::Hash, io::{Read, Seek, SeekFrom, Write}, ops::{Deref, DerefMut}, str::from_utf8, sync::atomic::{AtomicU64, Ordering}};
 
 use anyhow::Result;
 
@@ -51,7 +51,7 @@ pub trait Reader: Read + Seek {
 
 impl<T: Read + Seek> Reader for T {}
 
-pub trait Writer: Write + Seek {
+pub trait Writer: Write + Seek + Default {
     fn position(&mut self) -> Result<u64> {
         Ok(self.stream_position()?)
     }
@@ -73,7 +73,7 @@ pub trait Writer: Write + Seek {
     }
 }
 
-impl<T: Write + Seek> Writer for T {}
+impl<T: Write + Seek + Default> Writer for T {}
 
 pub enum Endianness {
     Little,
@@ -87,14 +87,13 @@ pub trait EndianSpecific {
 
 // reading / parsing
 pub trait ReadDomain: Copy + EndianSpecific {
-    type Flags;
     type Pointer;
     
     // TODO: consider making an error type for 'no read implementation' rather than using Options (see silly return types below for why)
     fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
     fn read_args<T: 'static, U>(self, reader: &mut impl Reader, args: U) -> Result<Option<T>>;
     
-    // TODO: make these optional to implement?
+    // TODO: make these optional to implement? i. e. split them into another Trait
     fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>>;
     
     fn read_boxed<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<Option<T>>>;
@@ -111,16 +110,125 @@ pub trait ReadableWithArgs<T>: Sized {
 
 // writing / serializing
 pub trait WriteDomain: Copy + EndianSpecific {
-    type Flags;
-    type Pointer;
+    type CanonicalWriter: Writer + Default;
     
-    fn write<T: 'static>(self, writer: &mut impl Writer, value: &T) -> Result<Option<()>>;
+    // TODO: split these into another trait
+    type Pointer;
+    type HeapCategory: Eq + Hash + Default;
+    
+    fn write<T: 'static>(self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
     
     // TODO: writing with args
     // TODO: boxed serializing
 }
 
+pub trait WriteDomainExt: WriteDomain {
+    fn new_writer() -> Self::CanonicalWriter {
+        Self::CanonicalWriter::default()
+    }
+    
+    fn new_ctx() -> WriteCtxImpl<Self::CanonicalWriter, Self::HeapCategory> {
+        WriteCtxImpl::new()
+    }
+}
+
+impl<T: WriteDomain> WriteDomainExt for T {}
+
 pub trait Writable: Sized {
-    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()>;
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()>;
+}
+
+// boxed serialization stuff
+pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
+    type Category: Eq + Hash + Default;
+    type Writer: Writer;
+    
+    fn get_heap(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer>;
+}
+
+pub struct WriteCtxImpl<W: Writer, C: Eq + Hash + Default = ()> {
+    default_heap: WriteHeap<W>,
+    heaps: HashMap<C, WriteHeap<W>>,
+}
+
+impl<W: Writer, C: Eq + Hash + Default> WriteCtxImpl<W, C> {
+    pub fn new() -> Self {
+        WriteCtxImpl {
+            default_heap: WriteHeap::new(),
+            heaps: HashMap::new(),
+        }
+    }
+}
+
+impl<W: Writer, C: Eq + Hash + Default> WriteCtx for WriteCtxImpl<W, C> {
+    type Category = C;
+    type Writer = W;
+
+    fn get_heap(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer> {
+        if category == C::default() {
+            &mut self.default_heap
+        } else {
+            // wow HashMap::entry is such a cool api actually
+            self.heaps.entry(category).or_insert_with(WriteHeap::new)
+        }
+    }
+}
+
+impl<W: Writer, C: Eq + Hash + Default> Deref for WriteCtxImpl<W, C> {
+    type Target = WriteHeap<W>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.default_heap
+    }
+}
+
+impl<W: Writer, C: Eq + Hash + Default> DerefMut for WriteCtxImpl<W, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.default_heap
+    }
+}
+
+pub struct WriteHeap<W: Writer> {
+    pub writer: W,
+    queued_blocks: Vec<(u64, W)>,
+}
+
+static BLOCK_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+impl<W: Writer> WriteHeap<W> {
+    pub fn new() -> Self {
+        WriteHeap {
+            writer: W::default(),
+            queued_blocks: Vec::new(),
+        }
+    }
+    
+    pub fn enqueue_block_start(&mut self) -> (u64, &mut W) {
+        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.queued_blocks.insert(0, (id, W::default()));
+        let (_, writer) = self.queued_blocks.first_mut().unwrap();
+        (id, writer)
+    }
+    
+    pub fn enqueue_block_end(&mut self) -> (u64, &mut W) {
+        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.queued_blocks.push((id, W::default()));
+        let (_, writer) = self.queued_blocks.last_mut().unwrap();
+        (id, writer)
+    }
+}
+
+impl<W: Writer> Deref for WriteHeap<W> {
+    type Target = W;
+
+    fn deref(&self) -> &Self::Target {
+        &self.writer
+    }
+}
+
+impl<W: Writer> DerefMut for WriteHeap<W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.writer
+    }
 }
 

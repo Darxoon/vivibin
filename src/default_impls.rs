@@ -1,6 +1,8 @@
+use std::io::Write;
+
 use anyhow::Result;
 
-use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteDomain, Writer};
+use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteCtx, WriteDomain};
 
 // numbers
 macro_rules! impl_rw_number {
@@ -18,13 +20,13 @@ macro_rules! impl_rw_number {
         }
         
         impl Writable for $type {
-            fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
+            fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
                 let bytes = match domain.endianness() {
                     Endianness::Little => self.to_le_bytes(),
                     Endianness::Big => self.to_be_bytes(),
                 };
                 
-                writer.write(&bytes)?;
+                ctx.write(&bytes)?;
                 Ok(())
             }
         }
@@ -71,8 +73,8 @@ impl ReadableWithArgs<BoolSize> for bool {
 
 // TODO: allow specifying size
 impl Writable for bool {
-    fn to_writer(&self, writer: &mut impl Writer, domain: impl WriteDomain) -> Result<()> {
-        (*self as u32).to_writer(writer, domain)?;
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+        (*self as u32).to_writer(ctx, domain)?;
         Ok(())
     }
 }
