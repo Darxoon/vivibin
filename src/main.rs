@@ -1,16 +1,10 @@
 use std::{any::TypeId, io::Cursor, mem::{transmute, ManuallyDrop}, ptr::read};
 
 use anyhow::Result;
-use vivibin::{default_impls::BoolSize, scoped_reader_pos, Endianness, ReadDomain, Readable, ReadableWithArgs, Reader};
+use vivibin::{default_impls::BoolSize, pointers::PointerZero32, scoped_reader_pos, Endianness, ReadDomain, Readable, ReadableWithArgs, Reader};
 
-#[derive(Clone, Copy)]
-struct Pointer(u32); // I have a more sophisticated pointer class elsewhere
-
-impl Into<u64> for Pointer {
-    fn into(self) -> u64 {
-        self.0 as u64
-    }
-}
+// typedef for more convenient access
+type Pointer = PointerZero32;
 
 #[derive(Clone, Copy)]
 struct FormatCgfx; // cgfx is an actual data type btw and the main reason I did this (3DS related)
@@ -39,7 +33,7 @@ impl FormatCgfx {
     pub fn read_relative_ptr(reader: &mut impl Reader) -> Result<Pointer> {
         let pos = reader.position()?;
         let raw_ptr = u32::from_reader(reader, Self)?;
-        Ok(if raw_ptr != 0 { Pointer(pos as u32 + raw_ptr) } else { Pointer(0) })
+        Ok(if raw_ptr != 0 { Pointer::new(pos as u32 + raw_ptr) } else { Pointer::new(0) })
     }
     
     pub fn read_str(reader: &mut impl Reader) -> Result<String> {
@@ -99,7 +93,8 @@ impl ReadDomain for FormatCgfx {
     
     fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>> {
         let ptr = Self::read_relative_ptr(reader)?;
-        if ptr.0 == 0 {
+        
+        if ptr.value() == 0 {
             return Ok(None)
         }
         

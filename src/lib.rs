@@ -3,6 +3,7 @@ use std::{io::{Read, Seek, SeekFrom, Write}, str::from_utf8};
 use anyhow::Result;
 
 pub mod default_impls;
+pub mod pointers;
 pub mod util;
 
 pub trait Reader: Read + Seek {
