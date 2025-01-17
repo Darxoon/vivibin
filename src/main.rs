@@ -75,8 +75,14 @@ impl FormatCgfx {
     }
     
     pub fn write_str(ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
-        // TODO: this is basically a boxed value so idk how to handle this yet
-        0u32.to_writer(ctx, Self)?;
+        let clone = value.to_owned();
+        let token = ctx.enqueue_block(move |w| {
+            w.write_c_str(&clone)?;
+            Ok(())
+        })?;
+        
+        // TODO: fix relocations
+        (token as u32).to_writer(ctx, Self)?;
         Ok(())
     }
 }
