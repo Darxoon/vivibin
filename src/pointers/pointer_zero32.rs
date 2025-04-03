@@ -125,7 +125,7 @@ impl PointerZero32 {
 }
 
 impl Readable for PointerZero32 {
-    fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self> {
+    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         Ok(PointerZero32(u32::from_reader(reader, domain)?))
     }
 }

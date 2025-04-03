@@ -8,7 +8,7 @@ use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable
 macro_rules! impl_rw_number {
     ($type:ident, $byte_size:expr) => {
         impl Readable for $type {
-            fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self> {
+            fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
                 let mut buf = [0; $byte_size];
                 reader.read_exact(&mut buf)?;
                 let result = match domain.endianness() {
@@ -55,7 +55,7 @@ pub enum BoolSize {
 }
 
 impl Readable for bool {
-    fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self> {
+    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         Self::from_reader_args(reader, domain, BoolSize::U32)
     }
 }

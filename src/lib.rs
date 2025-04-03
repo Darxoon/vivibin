@@ -86,22 +86,24 @@ pub trait EndianSpecific {
 }
 
 // reading / parsing
-pub trait ReadDomain: Copy + EndianSpecific {
+// kind of misusing unsafe traits here but this 
+// *is* supposed to be generated via proc macro
+pub unsafe trait ReadDomain: Copy + EndianSpecific {
     type Pointer;
     
-    // TODO: consider making an error type for 'no read implementation' rather than using Options (see silly return types below for why)
     fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
-    fn read_args<T: 'static, U>(self, reader: &mut impl Reader, args: U) -> Result<Option<T>>;
+    
+    // "optional" to implement, return Ok(None) if not
+    // TODO: implement more of these/make this more generic for all container types
+    fn read_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
+    fn read_std_box<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
     
     // TODO: make these optional to implement? i. e. split them into another Trait
     fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>>;
-    
-    fn read_boxed<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<Option<T>>>;
-    fn read_boxed_args<T: 'static, U>(self, reader: &mut impl Reader, args: U) -> Result<Option<Option<T>>>;
 }
 
 pub trait Readable: Sized {
-    fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self>;
+    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self>;
 }
 
 pub trait ReadableWithArgs<T>: Sized {
@@ -109,7 +111,7 @@ pub trait ReadableWithArgs<T>: Sized {
 }
 
 // writing / serializing
-pub trait WriteDomain: Copy + EndianSpecific {
+pub unsafe trait WriteDomain: Copy + EndianSpecific {
     type CanonicalWriter: Writer + Default;
     
     // TODO: split these into another trait

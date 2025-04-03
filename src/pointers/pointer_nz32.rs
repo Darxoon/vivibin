@@ -126,7 +126,7 @@ impl PointerNonZero32 {
 }
 
 impl Readable for PointerNonZero32 {
-    fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self> {
+    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         let value = u32::from_reader(reader, domain)?;
         Ok(PointerNonZero32(NonZeroU32::new(value).ok_or(Error::msg("Tried to cast 0 into PointerNonZero32"))?))
     }
@@ -142,7 +142,7 @@ impl Writable for PointerNonZero32 {
 // TODO: how do I allow user defined types to do the same
 // this is only possible becasue Readable and Writable are defined in the same crate
 impl Readable for Option<PointerNonZero32> {
-    fn from_reader(reader: &mut impl Reader, domain: impl ReadDomain) -> Result<Self> {
+    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         let value = u32::from_reader(reader, domain)?;
         Ok(NonZeroU32::new(value).map(|value| PointerNonZero32(value)))
     }
