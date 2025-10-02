@@ -86,9 +86,7 @@ pub trait EndianSpecific {
 }
 
 // reading / parsing
-// kind of misusing unsafe traits here but this 
-// *is* supposed to be generated via proc macro
-pub unsafe trait ReadDomain: Copy + EndianSpecific {
+pub trait ReadDomain: Copy + EndianSpecific {
     type Pointer;
     
     fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
@@ -111,7 +109,7 @@ pub trait ReadableWithArgs<T>: Sized {
 }
 
 // writing / serializing
-pub unsafe trait WriteDomain: Copy + EndianSpecific {
+pub trait WriteDomain: Copy + EndianSpecific {
     type CanonicalWriter: Writer + Default;
     
     // TODO: split these into another trait

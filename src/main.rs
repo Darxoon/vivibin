@@ -111,7 +111,7 @@ impl EndianSpecific for FormatCgfx {
     }
 }
 
-unsafe impl ReadDomain for FormatCgfx {
+impl ReadDomain for FormatCgfx {
     type Pointer = Pointer;
 
     fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
@@ -166,7 +166,7 @@ unsafe impl ReadDomain for FormatCgfx {
     }
 }
 
-unsafe impl WriteDomain for FormatCgfx {
+impl WriteDomain for FormatCgfx {
     type Pointer = Pointer;
     type CanonicalWriter = Cursor<Vec<u8>>;
     type HeapCategory = ();
