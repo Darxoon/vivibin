@@ -14,10 +14,7 @@ impl<'a> NamedField<'a> {
         
         let name = format_ident!("_{name}");
         let tokens = quote! {
-            let #name: #ty = match ::vivibin::ReadDomain::read::<#ty>(#domain, #reader)? {
-                Some(value) => value,
-                None => <#ty as ::vivibin::Readable>::from_reader(#reader, #domain)?,
-            };
+            let #name: #ty = ::vivibin::ReadDomainExt::read::<#ty>(#domain, #reader)?;
         };
         
         (name, tokens)

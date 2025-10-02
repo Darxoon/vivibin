@@ -1,7 +1,7 @@
 use std::{any::TypeId, io::{Cursor, Write}, mem::{transmute, ManuallyDrop}, ptr::read};
 
 use anyhow::{anyhow, Result};
-use vivibin::{default_impls::BoolSize, pointers::PointerZero32, scoped_reader_pos, EndianSpecific, Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteCtx, WriteDomain, Writer};
+use vivibin::{pointers::PointerZero32, scoped_reader_pos, EndianSpecific, Endianness, ReadDomain, ReadDomainExt, Readable, Reader, Writable, WriteCtx, WriteDomain, Writer};
 use vivibin_derive::Readable;
 
 // typedef for more convenient access
@@ -115,7 +115,7 @@ impl EndianSpecific for FormatCgfx {
 impl ReadDomain for FormatCgfx {
     type Pointer = Pointer;
 
-    fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
+    fn read_unk<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
         let result: Option<T>;
         let type_id = TypeId::of::<T>();
         
@@ -145,11 +145,11 @@ impl ReadDomain for FormatCgfx {
         Ok(result)
     }
     
-    fn read_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>> {
+    fn read_unk_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>> {
         Ok(Some(Self::read_vec(reader, read_content)?))
     }
     
-    fn read_std_box<T, R: Reader>(self, _reader: &mut R, _read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>> {
+    fn read_unk_std_box<T, R: Reader>(self, _reader: &mut R, _read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>> {
         Ok(None)
     }
     
@@ -235,24 +235,12 @@ struct Npc {
 
 impl Readable for Npc {
     fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
-        // TODO: try doing explicit trait bound instead of runtime check
-        let name = domain.read::<String>(reader)?
-            .ok_or_else(|| anyhow!("ReadDomain does not implement String"))?;
-        let position = match domain.read::<Vec3>(reader)? {
-            Some(x) => x,
-            None => Vec3::from_reader(reader, domain)?,
-        };
-        let is_visible = match domain.read::<bool>(reader)? {
-            Some(x) => x,
-            None => bool::from_reader_args(reader, domain, BoolSize::U32)?,
-        };
-        let read_u32 = |reader: &mut R| {
-            Ok(match domain.read::<u32>(reader)? {
-                Some(x) => x,
-                None => u32::from_reader(reader, domain)?,
-            })
-        };
-        let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader, read_u32)?
+        // TODO: ideally put this behind a trait bound?
+        let name = domain.read_unk::<String>(reader)?
+            .ok_or_else(|| anyhow!("ReadDomain does not implement read for type String"))?;
+        let position = domain.read::<Vec3>(reader)?;
+        let is_visible = domain.read::<bool>(reader)?;
+        let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader)?
             .ok_or_else(|| anyhow!("ReadDomain does not implement read_std_vec"))?;
         
         Ok(Npc {

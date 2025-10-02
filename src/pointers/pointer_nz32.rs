@@ -83,6 +83,7 @@ pub struct PointerNonZero32(NonZeroU32);
 
 impl PointerNonZero32 {
     pub fn read(reader: &mut impl Read) -> Result<Option<PointerNonZero32>> {
+        // TODO: remove dependency on byteorder
         let value = reader.read_u32::<LittleEndian>()?;
         
         if let Some(value) = NonZeroU32::new(value) {

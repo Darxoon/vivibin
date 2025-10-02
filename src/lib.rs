@@ -1,6 +1,7 @@
 use std::{cmp::Eq, collections::HashMap, default::Default, hash::Hash, io::{Read, Seek, SeekFrom, Write}, mem, ops::{Deref, DerefMut}, str::from_utf8, sync::atomic::{AtomicU64, Ordering}};
 
 use anyhow::Result;
+use array_init::try_array_init;
 
 pub mod default_impls;
 pub mod pointers;
@@ -89,16 +90,43 @@ pub trait EndianSpecific {
 pub trait ReadDomain: Copy + EndianSpecific {
     type Pointer;
     
-    fn read<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
+    fn read_unk<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
     
     // "optional" to implement, return Ok(None) if not
     // TODO: implement more of these/make this more generic for all container types
-    fn read_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
-    fn read_std_box<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
+    fn read_unk_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
+    fn read_unk_std_box<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
     
     // TODO: make these optional to implement? i. e. split them into another Trait
     fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>>;
 }
+
+pub trait ReadDomainExt: ReadDomain {
+    fn read<T: Readable + 'static>(self, reader: &mut impl Reader) -> Result<T> {
+        Ok(match self.read_unk::<T>(reader)? {
+            Some(x) => x,
+            None => T::from_reader(reader, self)?,
+        })
+    }
+    
+    fn read_std_vec<T: Readable + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
+        self.read_unk_std_vec(reader, |reader| self.read::<T>(reader))
+    }
+    
+    fn read_std_box<T: Readable + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
+        self.read_unk_std_box(reader, |reader| self.read::<T>(reader))
+    }
+    
+    fn read_unk_array<T, R: Reader, const N: usize>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<[T; N]> {
+        try_array_init(|_| read_content(reader))
+    }
+    
+    fn read_array<T: Readable, R: Reader, const N: usize>(self, reader: &mut R) -> Result<[T; N]> {
+        try_array_init(|_| T::from_reader(reader, self))
+    }
+}
+
+impl<T: ReadDomain> ReadDomainExt for T {}
 
 pub trait Readable: Sized {
     fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self>;
