@@ -1,7 +1,8 @@
 use std::{any::TypeId, io::{Cursor, Write}, mem::{transmute, ManuallyDrop}, ptr::read};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use vivibin::{default_impls::BoolSize, pointers::PointerZero32, scoped_reader_pos, EndianSpecific, Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteCtx, WriteDomain, Writer};
+use vivibin_derive::Readable;
 
 // typedef for more convenient access
 type Pointer = PointerZero32;
@@ -199,37 +200,11 @@ impl WriteDomain for FormatCgfx {
     }
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Readable)]
 struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-}
-
-impl Vec3 {
-    pub fn new(x: f32, y: f32, z: f32) -> Vec3 {
-        Vec3 { x, y, z }
-    }
-}
-
-impl Readable for Vec3 {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
-        let x = match domain.read::<f32>(reader)? {
-            Some(x) => x,
-            None => f32::from_reader(reader, domain)?,
-        };
-        let y = match domain.read::<f32>(reader)? {
-            Some(y) => y,
-            None => f32::from_reader(reader, domain)?,
-        };
-        let z = match domain.read::<f32>(reader)? {
-            Some(z) => z,
-            None => f32::from_reader(reader, domain)?,
-        };
-        
-        Ok(Vec3::new(x, y, z))
-    }
 }
 
 impl Writable for Vec3 {
@@ -260,10 +235,9 @@ struct Npc {
 
 impl Readable for Npc {
     fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
-        let name = match domain.read::<String>(reader)? {
-            Some(x) => x,
-            None => panic!(), // Ideally do a compile time check here :)
-        };
+        // TODO: try doing explicit trait bound instead of runtime check
+        let name = domain.read::<String>(reader)?
+            .ok_or_else(|| anyhow!("ReadDomain does not implement String"))?;
         let position = match domain.read::<Vec3>(reader)? {
             Some(x) => x,
             None => Vec3::from_reader(reader, domain)?,
@@ -278,10 +252,8 @@ impl Readable for Npc {
                 None => u32::from_reader(reader, domain)?,
             })
         };
-        let item_ids: Vec<u32> = match domain.read_std_vec::<u32, R>(reader, read_u32)? {
-            Some(x) => x,
-            None => panic!(), // Ideally do a compile time check here :)
-        };
+        let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader, read_u32)?
+            .ok_or_else(|| anyhow!("ReadDomain does not implement read_std_vec"))?;
         
         Ok(Npc {
             name,
