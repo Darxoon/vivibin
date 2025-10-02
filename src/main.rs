@@ -1,7 +1,15 @@
-use std::{any::TypeId, io::{Cursor, Write}, mem::{transmute, ManuallyDrop}, ptr::read};
+use std::{
+    any::TypeId,
+    io::{Cursor, Write},
+    mem::{transmute, ManuallyDrop},
+    ptr::read,
+};
 
 use anyhow::{anyhow, Result};
-use vivibin::{pointers::PointerZero32, scoped_reader_pos, EndianSpecific, Endianness, ReadDomain, ReadDomainExt, Readable, Reader, Writable, WriteCtx, WriteDomain, Writer};
+use vivibin::{
+    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain,
+    ReadDomainExt, Readable, ReadableSpecific, Reader, Writable, WriteCtx, WriteDomain, Writer,
+};
 use vivibin_derive::Readable;
 
 // typedef for more convenient access
@@ -101,7 +109,7 @@ impl FormatCgfx {
         
         Ok(match content {
             Some(content) => content,
-            None => Vec::new()
+            None => Vec::new(),
         })
     }
 }
@@ -166,6 +174,13 @@ impl ReadDomain for FormatCgfx {
         Ok(Some(parser(reader, self)?))
     }
 }
+
+impl CanRead<String> for FormatCgfx {
+    fn read_specific(self, reader: &mut impl Reader) -> Result<String> {
+        Self::read_str(reader)
+    }
+}
+// ... more CanRead implementations
 
 impl WriteDomain for FormatCgfx {
     type Pointer = Pointer;
@@ -233,11 +248,10 @@ struct Npc {
     item_ids: Vec<u32>,
 }
 
-impl Readable for Npc {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
+impl<D: CanRead<String>> ReadableSpecific<D> for Npc {
+    fn from_reader2<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
         // TODO: ideally put this behind a trait bound?
-        let name = domain.read_unk::<String>(reader)?
-            .ok_or_else(|| anyhow!("ReadDomain does not implement read for type String"))?;
+        let name = domain.read_specific(reader)?;
         let position = domain.read::<Vec3>(reader)?;
         let is_visible = domain.read::<bool>(reader)?;
         let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader)?
@@ -300,7 +314,7 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(&VEC3_BYTES);
-    let npc = Npc::from_reader(&mut cursor, FormatCgfx)?;
+    let npc = Npc::from_reader2(&mut cursor, FormatCgfx)?;
     println!("Hello World {:?}", npc);
     
     // let mut ctx = FormatCgfx::new_ctx();

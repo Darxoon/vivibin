@@ -1,4 +1,14 @@
-use std::{cmp::Eq, collections::HashMap, default::Default, hash::Hash, io::{Read, Seek, SeekFrom, Write}, mem, ops::{Deref, DerefMut}, str::from_utf8, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    cmp::Eq,
+    collections::HashMap,
+    default::Default,
+    hash::Hash,
+    io::{Read, Seek, SeekFrom, Write},
+    mem,
+    ops::{Deref, DerefMut},
+    str::from_utf8,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use anyhow::Result;
 use array_init::try_array_init;
@@ -128,12 +138,21 @@ pub trait ReadDomainExt: ReadDomain {
 
 impl<T: ReadDomain> ReadDomainExt for T {}
 
+pub trait CanRead<T: 'static>: ReadDomain {
+    fn read_specific(self, reader: &mut impl Reader) -> Result<T>;
+}
+
 pub trait Readable: Sized {
     fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self>;
 }
 
 pub trait ReadableWithArgs<T>: Sized {
     fn from_reader_args(reader: &mut impl Reader, domain: impl ReadDomain, args: T) -> Result<Self>;
+}
+
+// Experimental
+pub trait ReadableSpecific<D: ReadDomain>: Sized {
+    fn from_reader2<R: Reader>(reader: &mut R, domain: D) -> Result<Self>;
 }
 
 // writing / serializing
@@ -241,7 +260,9 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
         if *category == T::HeapCategory::default() {
             mem::take(&mut self.default_heap)
         } else {
-            self.heaps.remove(category).unwrap_or_else(|| WriteHeap::new())
+            self.heaps
+                .remove(category)
+                .unwrap_or_else(|| WriteHeap::new())
         }
     }
 }
@@ -263,7 +284,7 @@ impl<T: WriteDomain> DerefMut for WriteCtxImpl<T> {
 pub struct InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     default_category: T::HeapCategory,
     default_heap: WriteHeap<T::CanonicalWriter>,
@@ -273,7 +294,7 @@ where
 impl<'a, T, C> InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     pub fn new(ctx: &'a mut C, default_category: T::HeapCategory) -> Self {
         let default_heap = ctx.remove_heap(&default_category);
@@ -290,7 +311,7 @@ where
 impl<'a, T, C> WriteCtx for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     type Category = T::HeapCategory;
     type Writer = T::CanonicalWriter;
@@ -331,7 +352,7 @@ where
 impl<'a, T, C> Deref for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     type Target = WriteHeap<T::CanonicalWriter>;
 
@@ -343,7 +364,7 @@ where
 impl<'a, T, C> DerefMut for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.default_heap
@@ -353,7 +374,7 @@ where
 impl<'a, T, C> Drop for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>
+    C: WriteCtx<Writer = T::CanonicalWriter, Category = T::HeapCategory>,
 {
     fn drop(&mut self) {
         let default_category = mem::take(&mut self.default_category);
@@ -407,4 +428,3 @@ impl<W: Writer> DerefMut for WriteHeap<W> {
         &mut self.writer
     }
 }
-
