@@ -8,7 +8,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use vivibin::{
     pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain,
-    ReadDomainExt, Readable, ReadableSpecific, Reader, Writable, WriteCtx, WriteDomain, Writer,
+    ReadDomainExt, Readable, Reader, Writable, WriteCtx, WriteDomain, Writer,
 };
 use vivibin_derive::Readable;
 
@@ -176,7 +176,7 @@ impl ReadDomain for FormatCgfx {
 }
 
 impl CanRead<String> for FormatCgfx {
-    fn read_specific(self, reader: &mut impl Reader) -> Result<String> {
+    fn read(self, reader: &mut impl Reader) -> Result<String> {
         Self::read_str(reader)
     }
 }
@@ -237,6 +237,13 @@ impl Writable for Vec3 {
     }
 }
 
+// #[derive(Debug, Readable)]
+// struct SimpleNpc {
+//     name: String,
+//     position: Vec3,
+//     is_visible: bool,
+// }
+
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Npc {
@@ -248,12 +255,11 @@ struct Npc {
     item_ids: Vec<u32>,
 }
 
-impl<D: CanRead<String>> ReadableSpecific<D> for Npc {
-    fn from_reader2<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
-        // TODO: ideally put this behind a trait bound?
-        let name = domain.read_specific(reader)?;
-        let position = domain.read::<Vec3>(reader)?;
-        let is_visible = domain.read::<bool>(reader)?;
+impl<D: CanRead<String>> Readable<D> for Npc {
+    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+        let name = domain.read(reader)?;
+        let position = domain.read_fallback::<Vec3>(reader)?;
+        let is_visible = domain.read_fallback::<bool>(reader)?;
         let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader)?
             .ok_or_else(|| anyhow!("ReadDomain does not implement read_std_vec"))?;
         
@@ -314,7 +320,7 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(&VEC3_BYTES);
-    let npc = Npc::from_reader2(&mut cursor, FormatCgfx)?;
+    let npc = Npc::from_reader(&mut cursor, FormatCgfx)?;
     println!("Hello World {:?}", npc);
     
     // let mut ctx = FormatCgfx::new_ctx();

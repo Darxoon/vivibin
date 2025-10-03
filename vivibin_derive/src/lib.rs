@@ -13,13 +13,15 @@ impl<'a> NamedField<'a> {
         
         let name = format_ident!("_{name}");
         let tokens = quote! {
-            let #name: #ty = ::vivibin::ReadDomainExt::read::<#ty>(#domain, #reader)?;
+            let #name: #ty = ::vivibin::ReadDomainExt::read_fallback::<#ty>(#domain, #reader)?;
         };
         
         (name, tokens)
     }
 }
 
+// TODO: tuple structs
+#[allow(dead_code)]
 enum Structure<'a> {
     Named(Vec<NamedField<'a>>),
     Tuple(Vec<&'a Type>),
@@ -80,10 +82,10 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     };
     
     return quote! {
-        impl ::vivibin::Readable for Vec3 {
+        impl<D: ::vivibin::ReadDomain> ::vivibin::Readable<D> for Vec3 {
             fn from_reader<R: ::vivibin::Reader>(
                 reader: &mut R,
-                domain: impl ::vivibin::ReadDomain
+                domain: D
             ) -> ::anyhow::Result<Self> {
                 #body
             }

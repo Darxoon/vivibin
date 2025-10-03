@@ -112,26 +112,26 @@ pub trait ReadDomain: Copy + EndianSpecific {
 }
 
 pub trait ReadDomainExt: ReadDomain {
-    fn read<T: Readable + 'static>(self, reader: &mut impl Reader) -> Result<T> {
+    fn read_fallback<T: Readable<Self> + 'static>(self, reader: &mut impl Reader) -> Result<T> {
         Ok(match self.read_unk::<T>(reader)? {
             Some(x) => x,
             None => T::from_reader(reader, self)?,
         })
     }
     
-    fn read_std_vec<T: Readable + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
-        self.read_unk_std_vec(reader, |reader| self.read::<T>(reader))
+    fn read_std_vec<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
+        self.read_unk_std_vec(reader, |reader| self.read_fallback::<T>(reader))
     }
     
-    fn read_std_box<T: Readable + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
-        self.read_unk_std_box(reader, |reader| self.read::<T>(reader))
+    fn read_std_box<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
+        self.read_unk_std_box(reader, |reader| self.read_fallback::<T>(reader))
     }
     
     fn read_unk_array<T, R: Reader, const N: usize>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<[T; N]> {
         try_array_init(|_| read_content(reader))
     }
     
-    fn read_array<T: Readable, R: Reader, const N: usize>(self, reader: &mut R) -> Result<[T; N]> {
+    fn read_array<T: Readable<Self>, R: Reader, const N: usize>(self, reader: &mut R) -> Result<[T; N]> {
         try_array_init(|_| T::from_reader(reader, self))
     }
 }
@@ -139,20 +139,26 @@ pub trait ReadDomainExt: ReadDomain {
 impl<T: ReadDomain> ReadDomainExt for T {}
 
 pub trait CanRead<T: 'static>: ReadDomain {
-    fn read_specific(self, reader: &mut impl Reader) -> Result<T>;
+    fn read(self, reader: &mut impl Reader) -> Result<T>;
 }
 
-pub trait Readable: Sized {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self>;
+pub trait Readable<D: ReadDomain>: Sized {
+    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self>;
 }
 
 pub trait ReadableWithArgs<T>: Sized {
     fn from_reader_args(reader: &mut impl Reader, domain: impl ReadDomain, args: T) -> Result<Self>;
 }
 
-// Experimental
-pub trait ReadableSpecific<D: ReadDomain>: Sized {
-    fn from_reader2<R: Reader>(reader: &mut R, domain: D) -> Result<Self>;
+// Convenience trait for manual impls of types that are readable by all domains
+pub trait AnyReadable: Sized {
+    fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self>;
+}
+
+impl<A: AnyReadable, D: ReadDomain> Readable<D> for A {
+    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+        A::from_reader_any(reader, domain)
+    }
 }
 
 // writing / serializing

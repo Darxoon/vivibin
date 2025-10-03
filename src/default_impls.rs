@@ -2,13 +2,13 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use crate::{Endianness, ReadDomain, Readable, ReadableWithArgs, Reader, Writable, WriteCtx, WriteDomain};
+use crate::{Endianness, ReadDomain, AnyReadable, ReadableWithArgs, Reader, Writable, WriteCtx, WriteDomain};
 
 // numbers
 macro_rules! impl_rw_number {
     ($type:ident, $byte_size:expr) => {
-        impl Readable for $type {
-            fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
+        impl AnyReadable for $type {
+            fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
                 let mut buf = [0; $byte_size];
                 reader.read_exact(&mut buf)?;
                 let result = match domain.endianness() {
@@ -54,8 +54,8 @@ pub enum BoolSize {
     U64,
 }
 
-impl Readable for bool {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
+impl AnyReadable for bool {
+    fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         Self::from_reader_args(reader, domain, BoolSize::U32)
     }
 }
@@ -63,10 +63,10 @@ impl Readable for bool {
 impl ReadableWithArgs<BoolSize> for bool {
     fn from_reader_args(reader: &mut impl Reader, domain: impl ReadDomain, args: BoolSize) -> Result<Self> {
         Ok(match args {
-            BoolSize::U8 => u8::from_reader(reader, domain)? != 0,
-            BoolSize::U16 => u16::from_reader(reader, domain)? != 0,
-            BoolSize::U32 => u32::from_reader(reader, domain)? != 0,
-            BoolSize::U64 => u64::from_reader(reader, domain)? != 0,
+            BoolSize::U8 => u8::from_reader_any(reader, domain)? != 0,
+            BoolSize::U16 => u16::from_reader_any(reader, domain)? != 0,
+            BoolSize::U32 => u32::from_reader_any(reader, domain)? != 0,
+            BoolSize::U64 => u64::from_reader_any(reader, domain)? != 0,
         })
     }
 }

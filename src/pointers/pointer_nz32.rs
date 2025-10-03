@@ -3,7 +3,7 @@ use std::{fmt::Debug, io::{Read, Seek, Write}, num::NonZeroU32, ops::{Add, Sub}}
 use anyhow::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::{ReadDomain, Readable, Reader, Writable, WriteCtx, WriteDomain};
+use crate::{AnyReadable, ReadDomain, Reader, Writable, WriteCtx, WriteDomain};
 
 macro_rules! from_type {
     ($t:ident, $from:ty) => {
@@ -126,9 +126,9 @@ impl PointerNonZero32 {
     }
 }
 
-impl Readable for PointerNonZero32 {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
-        let value = u32::from_reader(reader, domain)?;
+impl AnyReadable for PointerNonZero32 {
+    fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
+        let value = u32::from_reader_any(reader, domain)?;
         Ok(PointerNonZero32(NonZeroU32::new(value).ok_or(Error::msg("Tried to cast 0 into PointerNonZero32"))?))
     }
 }
@@ -142,9 +142,9 @@ impl Writable for PointerNonZero32 {
 
 // TODO: how do I allow user defined types to do the same
 // this is only possible becasue Readable and Writable are defined in the same crate
-impl Readable for Option<PointerNonZero32> {
-    fn from_reader<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
-        let value = u32::from_reader(reader, domain)?;
+impl AnyReadable for Option<PointerNonZero32> {
+    fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
+        let value = u32::from_reader_any(reader, domain)?;
         Ok(NonZeroU32::new(value).map(|value| PointerNonZero32(value)))
     }
 }
