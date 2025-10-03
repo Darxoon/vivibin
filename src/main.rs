@@ -237,12 +237,14 @@ impl Writable for Vec3 {
     }
 }
 
-// #[derive(Debug, Readable)]
-// struct SimpleNpc {
-//     name: String,
-//     position: Vec3,
-//     is_visible: bool,
-// }
+#[derive(Debug, Readable)]
+#[allow(dead_code)]
+struct SimpleNpc {
+    #[require_domain]
+    name: String,
+    position: Vec3,
+    is_visible: bool,
+}
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -320,7 +322,7 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(&VEC3_BYTES);
-    let npc = Npc::from_reader(&mut cursor, FormatCgfx)?;
+    let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx)?;
     println!("Hello World {:?}", npc);
     
     // let mut ctx = FormatCgfx::new_ctx();
