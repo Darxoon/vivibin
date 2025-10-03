@@ -2,7 +2,6 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Ident, Type};
 
-#[derive(Debug)]
 struct NamedField<'a> {
     name: &'a Ident,
     ty: &'a Type,
@@ -21,7 +20,6 @@ impl<'a> NamedField<'a> {
     }
 }
 
-#[derive(Debug)]
 enum Structure<'a> {
     Named(Vec<NamedField<'a>>),
     Tuple(Vec<&'a Type>),
