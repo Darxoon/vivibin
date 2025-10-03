@@ -17,6 +17,8 @@ pub mod default_impls;
 pub mod pointers;
 pub mod util;
 
+pub use vivibin_derive::*;
+
 pub trait Reader: Read + Seek {
     fn position(&mut self) -> Result<u64> {
         Ok(self.stream_position()?)

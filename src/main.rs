@@ -10,7 +10,6 @@ use vivibin::{
     pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain,
     ReadDomainExt, Readable, Reader, Writable, WriteCtx, WriteDomain, Writer,
 };
-use vivibin_derive::Readable;
 
 // typedef for more convenient access
 type Pointer = PointerZero32;
