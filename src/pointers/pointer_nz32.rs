@@ -133,8 +133,8 @@ impl AnyReadable for PointerNonZero32 {
     }
 }
 
-impl Writable for PointerNonZero32 {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+impl<D: WriteDomain> Writable<D> for PointerNonZero32 {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
         self.0.get().to_writer(ctx, domain)?;
         Ok(())
     }
@@ -149,8 +149,8 @@ impl AnyReadable for Option<PointerNonZero32> {
     }
 }
 
-impl Writable for Option<PointerNonZero32> {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+impl<D: WriteDomain> Writable<D> for Option<PointerNonZero32> {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
         let value: u32 = self.map(|x| x.0.get()).unwrap_or(0);
         value.to_writer(ctx, domain)?;
         Ok(())

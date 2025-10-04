@@ -19,8 +19,8 @@ macro_rules! impl_rw_number {
             }
         }
         
-        impl Writable for $type {
-            fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+        impl<D: WriteDomain> Writable<D> for $type {
+            fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
                 let bytes = match domain.endianness() {
                     Endianness::Little => self.to_le_bytes(),
                     Endianness::Big => self.to_be_bytes(),
@@ -72,8 +72,8 @@ impl ReadableWithArgs<BoolSize> for bool {
 }
 
 // TODO: allow specifying size
-impl Writable for bool {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+impl<D: WriteDomain> Writable<D> for bool {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
         (*self as u32).to_writer(ctx, domain)?;
         Ok(())
     }

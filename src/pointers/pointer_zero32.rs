@@ -130,8 +130,8 @@ impl AnyReadable for PointerZero32 {
     }
 }
 
-impl Writable for PointerZero32 {
-    fn to_writer(&self, writer: &mut impl WriteCtx, domain: impl WriteDomain) -> Result<()> {
+impl<D: WriteDomain> Writable<D> for PointerZero32 {
+    fn to_writer(&self, writer: &mut impl WriteCtx, domain: D) -> Result<()> {
         self.0.to_writer(writer, domain)?;
         Ok(())
     }
