@@ -3,7 +3,7 @@ use std::{fmt::Debug, io::{Read, Seek, Write}, num::NonZeroU32, ops::{Add, Sub}}
 use anyhow::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::{AnyReadable, ReadDomain, Reader, Writable, WriteCtx, WriteDomain};
+use crate::{impl_writable_from_simple, AnyReadable, ReadDomain, Reader, SimpleWritable, WriteDomain, Writer};
 
 macro_rules! from_type {
     ($t:ident, $from:ty) => {
@@ -133,15 +133,17 @@ impl AnyReadable for PointerNonZero32 {
     }
 }
 
-impl<D: WriteDomain> Writable<D> for PointerNonZero32 {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
-        self.0.get().to_writer(ctx, domain)?;
+impl<D: WriteDomain> SimpleWritable<D> for PointerNonZero32 {
+    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
+        self.0.get().to_writer_simple(ctx, domain)?;
         Ok(())
     }
 }
 
+impl_writable_from_simple!(PointerNonZero32);
+
 // TODO: how do I allow user defined types to do the same
-// this is only possible becasue Readable and Writable are defined in the same crate
+// this is only possible becasue Readable and SimpleWritable are defined in the same crate
 impl AnyReadable for Option<PointerNonZero32> {
     fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         let value = u32::from_reader_any(reader, domain)?;
@@ -149,13 +151,15 @@ impl AnyReadable for Option<PointerNonZero32> {
     }
 }
 
-impl<D: WriteDomain> Writable<D> for Option<PointerNonZero32> {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
+impl<D: WriteDomain> SimpleWritable<D> for Option<PointerNonZero32> {
+    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
         let value: u32 = self.map(|x| x.0.get()).unwrap_or(0);
-        value.to_writer(ctx, domain)?;
+        value.to_writer_simple(ctx, domain)?;
         Ok(())
     }
 }
+
+impl_writable_from_simple!(Option<PointerNonZero32>);
 
 impl Debug for PointerNonZero32 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

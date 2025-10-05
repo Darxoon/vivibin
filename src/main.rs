@@ -4,7 +4,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain, ReadDomainExt, Readable, Reader, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
+    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
 };
 
 // typedef for more convenient access
@@ -60,9 +60,9 @@ impl FormatCgfx {
         Ok(if raw_ptr != 0 { Pointer::new(pos as u32 + raw_ptr) } else { Pointer::new(0) })
     }
     
-    pub fn write_relative_ptr(ctx: &mut impl WriteCtx, value: Pointer) -> Result<()> {
-        let relative = value.value() - ctx.position()? as u32;
-        relative.to_writer(ctx, Self)?;
+    pub fn write_relative_ptr(writer: &mut impl Writer, value: Pointer) -> Result<()> {
+        let relative = value.value() - writer.position()? as u32;
+        relative.to_writer_simple(writer, Self)?;
         Ok(())
     }
     
@@ -197,7 +197,7 @@ impl WriteDomain for FormatCgfx {
             Ok(Some(()))
         } else if type_id == TypeId::of::<Pointer>() {
             let value = unsafe { transmute::<&T, &Pointer>(value) };
-            Self::write_relative_ptr(ctx, *value)?;
+            Self::write_relative_ptr(ctx.cur_writer(), *value)?;
             Ok(Some(()))
         } else if type_id == TypeId::of::<String>() {
             let value = unsafe { transmute::<&T, &String>(value) };
@@ -206,6 +206,10 @@ impl WriteDomain for FormatCgfx {
         } else {
             Ok(None)
         }
+    }
+    
+    fn apply_reference(self, writer: &mut impl Writer, heap_offset: usize) -> Result<()> {
+        Self::write_relative_ptr(writer, heap_offset.into())
     }
 }
 
@@ -326,6 +330,6 @@ fn main() -> Result<()> {
     
     let mut ctx = FormatCgfx::new_ctx();
     npc.to_writer(&mut ctx, FormatCgfx)?;
-    println!("Written {:#x?}", &ctx.to_buffer());
+    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx));
     Ok(())
 }

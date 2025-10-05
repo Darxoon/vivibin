@@ -16,7 +16,6 @@ pub mod default_impls;
 pub mod pointers;
 pub mod util;
 
-use byteorder::{LittleEndian, WriteBytesExt};
 pub use vivibin_derive::*;
 
 pub trait Reader: Read + Seek {
@@ -170,6 +169,7 @@ pub trait WriteDomain: Copy + EndianSpecific {
     type HeapCategory: Eq + Hash + Ord + Default;
     
     fn write_unk<T: 'static>(self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
+    fn apply_reference(self, writer: &mut impl Writer, heap_offset: usize) -> Result<()>;
     
     // TODO: writing with args
     // TODO: boxed serializing
@@ -194,6 +194,21 @@ pub trait Writable<D: WriteDomain>: Sized {
     fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()>;
 }
 
+pub trait SimpleWritable<D: WriteDomain>: Sized {
+    fn to_writer_simple(&self, writer: &mut impl Writer, domain: D) -> Result<()>;
+}
+
+#[macro_export]
+macro_rules! impl_writable_from_simple {
+    ($type:ty) => {
+        impl<D: $crate::WriteDomain> $crate::Writable<D> for $type {
+            fn to_writer(&self, ctx: &mut impl $crate::WriteCtx, domain: D) -> Result<()> {
+                self.to_writer_simple(ctx.cur_writer(), domain)
+            }
+        }
+    };
+}
+
 // boxed serialization stuff
 pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     type Category: Eq + Hash + Default;
@@ -216,7 +231,7 @@ pub struct WriteCtxImpl<T: WriteDomain> {
     heaps: HashMap<T::HeapCategory, WriteHeap<WriteCtxWriter>>,
 }
 
-impl<T: WriteDomain> WriteCtxImpl<T> {
+impl<D: WriteDomain> WriteCtxImpl<D> {
     pub fn new() -> Self {
         WriteCtxImpl {
             default_heap: WriteHeap::new(),
@@ -224,12 +239,12 @@ impl<T: WriteDomain> WriteCtxImpl<T> {
         }
     }
     
-    pub fn to_buffer(mut self) -> Result<Vec<u8>> {
+    pub fn to_buffer(mut self, domain: D) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
-        self.heaps.insert(T::HeapCategory::default(), self.default_heap);
+        self.heaps.insert(D::HeapCategory::default(), self.default_heap);
         
-        let mut heaps = self.heaps.iter_mut().collect::<Vec<_>>();
+        let mut heaps = self.heaps.iter().collect::<Vec<_>>();
         heaps.sort_by_key(|(category, _)| *category);
         
         let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
@@ -249,8 +264,7 @@ impl<T: WriteDomain> WriteCtxImpl<T> {
                     let writer_pos = writer.position();
                     writer.set_position(offset as u64);
                     
-                    // TODO: use the domain for this
-                    writer.write_u32::<LittleEndian>(block_start as u32 + token.offset)?;
+                    domain.apply_reference(&mut writer, block_start + token.offset as usize)?;
                     
                     writer.set_position(writer_pos);
                 }
