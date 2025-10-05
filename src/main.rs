@@ -85,8 +85,7 @@ impl FormatCgfx {
             Ok(())
         })?;
         
-        // TODO: fix relocations
-        (token.0 as u32).to_writer(ctx, Self)?;
+        ctx.write_token::<4>(token)?;
         Ok(())
     }
     
@@ -279,13 +278,14 @@ impl<D: WriteDomain> Writable<D> for Npc {
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
         // TODO: add better convenience for this
+        domain.write_fallback(ctx, &(self.item_ids.len() as u32))?;
         let item_ids_token = ctx.allocate_next_block(|ctx| {
             for value in &self.item_ids {
                 domain.write_fallback::<u32>(ctx, value)?;
             }
             Ok(())
         })?;
-        domain.write_fallback::<u32>(ctx, &(item_ids_token.0 as u32))?;
+        ctx.write_token::<4>(item_ids_token)?;
         Ok(())
     }
 }

@@ -7,7 +7,6 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     str::from_utf8,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use anyhow::Result;
@@ -17,6 +16,7 @@ pub mod default_impls;
 pub mod pointers;
 pub mod util;
 
+use byteorder::{LittleEndian, WriteBytesExt};
 pub use vivibin_derive::*;
 
 pub trait Reader: Read + Seek {
@@ -232,9 +232,32 @@ impl<T: WriteDomain> WriteCtxImpl<T> {
         let mut heaps = self.heaps.iter_mut().collect::<Vec<_>>();
         heaps.sort_by_key(|(category, _)| *category);
         
+        let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
+        
         for (_, heap) in heaps {
-            for (_, block) in &heap.blocks {
-                writer.write_all(block.get_ref())?;
+            all_relocations.clear();
+            
+            for (block_id, block) in heap.blocks.iter().enumerate() {
+                let block_start = writer.position() as usize;
+                writer.write_all(block.writer.get_ref())?;
+                
+                // apply previous relocations
+                let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)|
+                    token.block_id as usize == block_id);
+                
+                for (offset, token) in all_relocations_to_current {
+                    let writer_pos = writer.position();
+                    writer.set_position(offset as u64);
+                    
+                    // TODO: use the domain for this
+                    writer.write_u32::<LittleEndian>(block_start as u32 + token.offset)?;
+                    
+                    writer.set_position(writer_pos);
+                }
+                
+                // push new relocations
+                all_relocations.extend(block.relocations.iter().copied()
+                    .map(|(local_offset, token)| (block_start + local_offset, token)));
             }
         }
         
@@ -420,43 +443,65 @@ where
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HeapToken(pub usize);
+pub struct HeapToken {
+    block_id: u32,
+    offset: u32,
+}
 
-static BLOCK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+#[derive(Clone, Debug)]
+pub struct HeapBlock<W: Writer> {
+    relocations: Vec<(usize, HeapToken)>,
+    writer: W,
+}
+
+impl<W: Writer> HeapBlock<W> {
+    pub fn new() -> Self {
+        HeapBlock {
+            relocations: Vec::new(),
+            writer: W::default(),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct WriteHeap<W: Writer> {
     current_block: usize,
-    blocks: Vec<(HeapToken, W)>,
+    blocks: Vec<HeapBlock<W>>,
 }
 
 impl<W: Writer> WriteHeap<W> {
     pub fn new() -> Self {
         WriteHeap {
             current_block: 0,
-            blocks: vec![Self::new_block()],
+            blocks: vec![HeapBlock::new()],
         }
     }
     
     pub fn cur_writer(&mut self) -> &mut W {
-        &mut self.blocks[self.current_block].1
+        &mut self.blocks[self.current_block].writer
+    }
+    
+    pub fn write_token<const BYTE_SIZE: usize>(&mut self, token: HeapToken) -> Result<()> {
+        let block = &mut self.blocks[self.current_block];
+        block.relocations.push((block.writer.position()? as usize, token));
+        
+        self.cur_writer().write_all(&const { [0; BYTE_SIZE] })?;
+        Ok(())
     }
     
     fn allocate_next_block(&mut self) -> Result<HeapToken> {
         if self.current_block == self.blocks.len() - 1 {
             // allocate new block
             self.current_block = self.blocks.len();
-            self.blocks.push(Self::new_block());
+            self.blocks.push(HeapBlock::new());
         } else {
             self.current_block += 1;
         }
         
-        Ok(self.blocks[self.current_block].0)
-    }
-    
-    fn new_block() -> (HeapToken, W) {
-        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        (HeapToken(id), W::default())
+        Ok(HeapToken {
+            block_id: self.current_block as u32,
+            offset: self.cur_writer().position()? as u32,
+        })
     }
 }
 
@@ -467,7 +512,7 @@ impl<W: Writer> Deref for WriteHeap<W> {
         // I don't really see the point of creating an explicit named function for this
         // unlike cur_writer/deref_mut
         // because what do you want to do with an immutable writer
-        &self.blocks[self.current_block].1
+        &self.blocks[self.current_block].writer
     }
 }
 
