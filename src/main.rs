@@ -80,13 +80,13 @@ impl FormatCgfx {
     
     pub fn write_str(ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
         let clone = value.to_owned();
-        let token = ctx.enqueue_block(move |w| {
-            w.write_c_str(&clone)?;
+        let token = ctx.allocate_next_block(move |ctx| {
+            ctx.write_c_str(&clone)?;
             Ok(())
         })?;
         
         // TODO: fix relocations
-        (token as u32).to_writer(ctx, Self)?;
+        (token.0 as u32).to_writer(ctx, Self)?;
         Ok(())
     }
     
@@ -278,6 +278,14 @@ impl<D: WriteDomain> Writable<D> for Npc {
         }
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
+        // TODO: add better convenience for this
+        let item_ids_token = ctx.allocate_next_block(|ctx| {
+            for value in &self.item_ids {
+                domain.write_fallback::<u32>(ctx, value)?;
+            }
+            Ok(())
+        })?;
+        domain.write_fallback::<u32>(ctx, &(item_ids_token.0 as u32))?;
         Ok(())
     }
 }

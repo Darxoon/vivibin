@@ -7,7 +7,7 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     str::from_utf8,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use anyhow::Result;
@@ -199,6 +199,8 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     type Category: Eq + Hash + Default;
     type Writer: Writer;
     
+    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer>;
     
@@ -231,11 +233,9 @@ impl<T: WriteDomain> WriteCtxImpl<T> {
         heaps.sort_by_key(|(category, _)| *category);
         
         for (_, heap) in heaps {
-            for (_, read_fn) in &mut heap.queued_blocks {
-                read_fn(&mut heap.writer)?;
+            for (_, block) in &heap.blocks {
+                writer.write_all(block.get_ref())?;
             }
-            
-            writer.write(heap.writer.get_ref())?;
         }
         
         Ok(writer.into_inner())
@@ -246,6 +246,17 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     type Category = T::HeapCategory;
     type Writer = WriteCtxWriter;
 
+    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let prev_current_block = self.default_heap.current_block;
+        let new_block_token = self.default_heap.allocate_next_block()?;
+        
+        content_callback(self)?;
+        
+        self.default_heap.current_block = prev_current_block;
+        Ok(new_block_token)
+    }
+    
+    // I'm honestly not sure anymore where these are useful
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>> {
         if *category == T::HeapCategory::default() {
             Some(&self.default_heap)
@@ -331,6 +342,16 @@ where
     type Category = T::HeapCategory;
     type Writer = WriteCtxWriter;
 
+    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let prev_current_block = self.default_heap.current_block;
+        let new_block_token = self.default_heap.allocate_next_block()?;
+        
+        content_callback(self)?;
+        
+        self.default_heap.current_block = prev_current_block;
+        Ok(new_block_token)
+    }
+    
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>> {
         if *category == self.default_category {
             Some(&self.default_heap)
@@ -398,35 +419,44 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeapToken(pub usize);
+
+static BLOCK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Default)]
 pub struct WriteHeap<W: Writer> {
-    pub writer: W,
-    queued_blocks: Vec<(u64, Box<dyn Fn(&mut W) -> Result<()>>)>,
+    current_block: usize,
+    blocks: Vec<(HeapToken, W)>,
 }
-
-static BLOCK_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl<W: Writer> WriteHeap<W> {
     pub fn new() -> Self {
         WriteHeap {
-            writer: W::default(),
-            queued_blocks: Vec::new(),
+            current_block: 0,
+            blocks: vec![Self::new_block()],
         }
     }
     
-    // TODO: use InnerWriteCtx here
-    pub fn enqueue_block(&mut self, content_callback: impl Fn(&mut W) -> Result<()> + 'static) -> Result<u64> {
-        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.queued_blocks.insert(0, (id, Box::new(content_callback)));
-        
-        Ok(id)
+    pub fn cur_writer(&mut self) -> &mut W {
+        &mut self.blocks[self.current_block].1
     }
     
-    pub fn enqueue_block_end(&mut self, content_callback: impl Fn(&mut W) -> Result<()> + 'static) -> Result<u64> {
-        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.queued_blocks.push((id, Box::new(content_callback)));
+    fn allocate_next_block(&mut self) -> Result<HeapToken> {
+        if self.current_block == self.blocks.len() - 1 {
+            // allocate new block
+            self.current_block = self.blocks.len();
+            self.blocks.push(Self::new_block());
+        } else {
+            self.current_block += 1;
+        }
         
-        Ok(id)
+        Ok(self.blocks[self.current_block].0)
+    }
+    
+    fn new_block() -> (HeapToken, W) {
+        let id = BLOCK_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        (HeapToken(id), W::default())
     }
 }
 
@@ -434,12 +464,15 @@ impl<W: Writer> Deref for WriteHeap<W> {
     type Target = W;
 
     fn deref(&self) -> &Self::Target {
-        &self.writer
+        // I don't really see the point of creating an explicit named function for this
+        // unlike cur_writer/deref_mut
+        // because what do you want to do with an immutable writer
+        &self.blocks[self.current_block].1
     }
 }
 
 impl<W: Writer> DerefMut for WriteHeap<W> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.writer
+        self.cur_writer()
     }
 }
