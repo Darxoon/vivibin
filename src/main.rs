@@ -1,31 +1,31 @@
 use std::{
-    any::TypeId, io::{Cursor, Write}, mem::{transmute, ManuallyDrop}, ptr::read
+    any::TypeId, io::{Cursor, Write}, marker::PhantomData, mem::{transmute, ManuallyDrop}, ptr::read
 };
 
 use anyhow::{anyhow, Result};
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
+    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
 };
 
 // typedef for more convenient access
 type Pointer = PointerZero32;
 
-#[derive(Clone, Copy)]
-struct FormatCgfx; // cgfx is an actual data type btw and the main reason I did this (3DS related)
+#[derive(Clone, Default)]
+struct FormatCgfx<C: HeapCategory>(PhantomData<C>); // cgfx is an actual data type btw and the main reason I did this (3DS related)
 
-impl FormatCgfx {
+impl<C: HeapCategory> FormatCgfx<C> {
     pub fn read_i32(reader: &mut impl Reader) -> Result<i32> {
         let mut bytes: [u8; 4] = Default::default();
         reader.read(&mut bytes)?;
         
-        Ok(match Self.endianness() {
+        Ok(match Self::default().endianness() {
             Endianness::Little => i32::from_le_bytes(bytes),
             Endianness::Big => i32::from_be_bytes(bytes),
         })
     }
     
     pub fn write_i32(ctx: &mut impl WriteCtx, value: i32) -> Result<()> {
-        let bytes = match Self.endianness() {
+        let bytes = match Self::default().endianness() {
             Endianness::Little => value.to_le_bytes(),
             Endianness::Big => value.to_be_bytes(),
         };
@@ -38,14 +38,14 @@ impl FormatCgfx {
         let mut bytes: [u8; 4] = Default::default();
         reader.read(&mut bytes)?;
         
-        Ok(match Self.endianness() {
+        Ok(match Self::default().endianness() {
             Endianness::Little => u32::from_le_bytes(bytes),
             Endianness::Big => u32::from_be_bytes(bytes),
         })
     }
     
     pub fn write_u32(ctx: &mut impl WriteCtx, value: u32) -> Result<()> {
-        let bytes = match Self.endianness() {
+        let bytes = match Self::default().endianness() {
             Endianness::Little => value.to_le_bytes(),
             Endianness::Big => value.to_be_bytes(),
         };
@@ -56,13 +56,13 @@ impl FormatCgfx {
     
     pub fn read_relative_ptr(reader: &mut impl Reader) -> Result<Pointer> {
         let pos = reader.position()?;
-        let raw_ptr = u32::from_reader(reader, Self)?;
+        let raw_ptr = u32::from_reader(reader, Self::default())?;
         Ok(if raw_ptr != 0 { Pointer::new(pos as u32 + raw_ptr) } else { Pointer::new(0) })
     }
     
     pub fn write_relative_ptr(writer: &mut impl Writer, value: Pointer) -> Result<()> {
         let relative = value.value() - writer.position()? as u32;
-        relative.to_writer_simple(writer, Self)?;
+        relative.to_writer_simple(writer, Self::default())?;
         Ok(())
     }
     
@@ -91,7 +91,7 @@ impl FormatCgfx {
     
     pub fn read_vec<T, R: Reader>(reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Vec<T>> {
         let count = Self::read_u32(reader)?;
-        let content = Self.read_box(reader, |reader, _| {
+        let content = Self::default().read_box(reader, |reader, _| {
             let mut result = Vec::with_capacity(count as usize);
             
             for _ in 0..count {
@@ -108,13 +108,16 @@ impl FormatCgfx {
     }
 }
 
-impl EndianSpecific for FormatCgfx {
+// https://github.com/rust-lang/rust/issues/26925
+impl<C: HeapCategory> Copy for FormatCgfx<C> {}
+
+impl<C: HeapCategory> EndianSpecific for FormatCgfx<C> {
     fn endianness(self) -> Endianness {
         Endianness::Little
     }
 }
 
-impl ReadDomain for FormatCgfx {
+impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
     type Pointer = Pointer;
 
     fn read_unk<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>> {
@@ -170,16 +173,16 @@ impl ReadDomain for FormatCgfx {
     }
 }
 
-impl CanRead<String> for FormatCgfx {
+impl<C: HeapCategory> CanRead<String> for FormatCgfx<C> {
     fn read(self, reader: &mut impl Reader) -> Result<String> {
         Self::read_str(reader)
     }
 }
 // ... more CanRead implementations
 
-impl WriteDomain for FormatCgfx {
+impl<C: HeapCategory> WriteDomain for FormatCgfx<C> {
     type Pointer = Pointer;
-    type HeapCategory = ();
+    type Cat = C;
 
     fn write_unk<T: 'static>(self, ctx: &mut impl vivibin::WriteCtx, value: &T) -> Result<Option<()>> {
         let type_id = TypeId::of::<T>();
@@ -325,11 +328,11 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(&VEC3_BYTES);
-    let npc = Npc::from_reader(&mut cursor, FormatCgfx)?;
+    let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {:?}", npc);
     
-    let mut ctx = FormatCgfx::new_ctx();
-    npc.to_writer(&mut ctx, FormatCgfx)?;
-    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx));
+    let mut ctx = FormatCgfx::<()>::new_ctx();
+    npc.to_writer(&mut ctx, FormatCgfx::<()>::default())?;
+    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx::<()>::default()));
     Ok(())
 }

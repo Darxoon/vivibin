@@ -163,10 +163,12 @@ impl<A: AnyReadable, D: ReadDomain> Readable<D> for A {
 }
 
 // writing / serializing
+pub trait HeapCategory: Eq + Hash + Ord + Default + Clone {}
+
 pub trait WriteDomain: Copy + EndianSpecific {
     // TODO: split these into another trait
     type Pointer;
-    type HeapCategory: Eq + Hash + Ord + Default;
+    type Cat: HeapCategory;
     
     fn write_unk<T: 'static>(self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
     fn apply_reference(self, writer: &mut impl Writer, heap_offset: usize) -> Result<()>;
@@ -228,7 +230,7 @@ pub type WriteCtxWriter = Cursor<Vec<u8>>;
 
 pub struct WriteCtxImpl<T: WriteDomain> {
     default_heap: WriteHeap<WriteCtxWriter>,
-    heaps: HashMap<T::HeapCategory, WriteHeap<WriteCtxWriter>>,
+    heaps: HashMap<T::Cat, WriteHeap<WriteCtxWriter>>,
 }
 
 impl<D: WriteDomain> WriteCtxImpl<D> {
@@ -242,7 +244,7 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
     pub fn to_buffer(mut self, domain: D) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
-        self.heaps.insert(D::HeapCategory::default(), self.default_heap);
+        self.heaps.insert(D::Cat::default(), self.default_heap);
         
         let mut heaps = self.heaps.iter().collect::<Vec<_>>();
         heaps.sort_by_key(|(category, _)| *category);
@@ -280,7 +282,7 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
 }
 
 impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
-    type Category = T::HeapCategory;
+    type Category = T::Cat;
     type Writer = WriteCtxWriter;
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
@@ -295,7 +297,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     
     // I'm honestly not sure anymore where these are useful
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>> {
-        if *category == T::HeapCategory::default() {
+        if *category == T::Cat::default() {
             Some(&self.default_heap)
         } else {
             self.heaps.get(category)
@@ -303,7 +305,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     }
     
     fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer> {
-        if category == T::HeapCategory::default() {
+        if category == T::Cat::default() {
             &mut self.default_heap
         } else {
             // wow HashMap::entry is such a cool api actually
@@ -312,7 +314,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     }
     
     fn set_heap(&mut self, category: Self::Category, heap: WriteHeap<Self::Writer>) {
-        if category == T::HeapCategory::default() {
+        if category == T::Cat::default() {
             self.default_heap = heap;
         } else {
             self.heaps.insert(category, heap);
@@ -320,7 +322,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     }
     
     fn remove_heap(&mut self, category: &Self::Category) -> WriteHeap<Self::Writer> {
-        if *category == T::HeapCategory::default() {
+        if *category == T::Cat::default() {
             mem::take(&mut self.default_heap)
         } else {
             self.heaps
@@ -347,9 +349,9 @@ impl<T: WriteDomain> DerefMut for WriteCtxImpl<T> {
 pub struct InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
-    default_category: T::HeapCategory,
+    default_category: T::Cat,
     default_heap: WriteHeap<WriteCtxWriter>,
     ctx: &'a mut C,
 }
@@ -357,9 +359,9 @@ where
 impl<'a, T, C> InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
-    pub fn new(ctx: &'a mut C, default_category: T::HeapCategory) -> Self {
+    pub fn new(ctx: &'a mut C, default_category: T::Cat) -> Self {
         let default_heap = ctx.remove_heap(&default_category);
         
         // SAFETY: 
@@ -374,9 +376,9 @@ where
 impl<'a, T, C> WriteCtx for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
-    type Category = T::HeapCategory;
+    type Category = T::Cat;
     type Writer = WriteCtxWriter;
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
@@ -425,7 +427,7 @@ where
 impl<'a, T, C> Deref for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
     type Target = WriteHeap<WriteCtxWriter>;
 
@@ -437,7 +439,7 @@ where
 impl<'a, T, C> DerefMut for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.default_heap
@@ -447,7 +449,7 @@ where
 impl<'a, T, C> Drop for InnerWriteCtx<'a, T, C>
 where
     T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::HeapCategory>,
+    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
 {
     fn drop(&mut self) {
         let default_category = mem::take(&mut self.default_category);

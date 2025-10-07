@@ -1,6 +1,8 @@
 use anyhow::Result;
 
-use crate::{impl_writable_from_simple, AnyReadable, Endianness, ReadDomain, ReadableWithArgs, Reader, SimpleWritable, WriteDomain, Writer};
+use crate::{impl_writable_from_simple, AnyReadable, Endianness, HeapCategory, ReadDomain, ReadableWithArgs, Reader, SimpleWritable, WriteDomain, Writer};
+
+impl HeapCategory for () {}
 
 // numbers
 macro_rules! impl_rw_number {
@@ -33,15 +35,23 @@ macro_rules! impl_rw_number {
     };
 }
 
-impl_rw_number!(u8, 1);
-impl_rw_number!(u16, 2);
-impl_rw_number!(u32, 4);
-impl_rw_number!(u64, 8);
+macro_rules! impl_traits_number {
+    ($type:ident, $byte_size:expr) => {
+        impl_rw_number!($type, $byte_size);
+        
+        impl HeapCategory for $type {}
+    };
+}
 
-impl_rw_number!(i8, 1);
-impl_rw_number!(i16, 2);
-impl_rw_number!(i32, 4);
-impl_rw_number!(i64, 8);
+impl_traits_number!(u8, 1);
+impl_traits_number!(u16, 2);
+impl_traits_number!(u32, 4);
+impl_traits_number!(u64, 8);
+
+impl_traits_number!(i8, 1);
+impl_traits_number!(i16, 2);
+impl_traits_number!(i32, 4);
+impl_traits_number!(i64, 8);
 
 impl_rw_number!(f32, 4);
 impl_rw_number!(f64, 8);
