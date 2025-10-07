@@ -4,7 +4,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
+    pointers::PointerZero32, scoped_reader_pos, CanRead, CanWrite, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
 };
 
 // typedef for more convenient access
@@ -78,10 +78,9 @@ impl<C: HeapCategory> FormatCgfx<C> {
         Ok(reader.read_c_str()?)
     }
     
-    pub fn write_str(ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
-        let clone = value.to_owned();
+    pub fn write_str(ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
         let token = ctx.allocate_next_block(move |ctx| {
-            ctx.write_c_str(&clone)?;
+            ctx.write_c_str(value)?;
             Ok(())
         })?;
         
@@ -213,6 +212,22 @@ impl<C: HeapCategory> WriteDomain for FormatCgfx<C> {
     
     fn apply_reference(self, writer: &mut impl Writer, heap_offset: usize) -> Result<()> {
         Self::write_relative_ptr(writer, heap_offset.into())
+    }
+}
+
+impl<C: HeapCategory> CanWrite<i32> for FormatCgfx<C> {
+    fn write(self, ctx: &mut impl WriteCtx, value: &i32) -> Result<()> {
+        Self::write_i32(ctx, *value)
+    }
+}
+impl<C: HeapCategory> CanWrite<u32> for FormatCgfx<C> {
+    fn write(self, ctx: &mut impl WriteCtx, value: &u32) -> Result<()> {
+        Self::write_u32(ctx, *value)
+    }
+}
+impl<C: HeapCategory> CanWrite<String> for FormatCgfx<C> {
+    fn write(self, ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
+        Self::write_str(ctx, value)
     }
 }
 

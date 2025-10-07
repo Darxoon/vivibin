@@ -192,6 +192,10 @@ pub trait WriteDomainExt: WriteDomain {
 
 impl<T: WriteDomain> WriteDomainExt for T {}
 
+pub trait CanWrite<T: 'static>: WriteDomain {
+    fn write(self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
+}
+
 pub trait Writable<D: WriteDomain>: Sized {
     fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()>;
 }
