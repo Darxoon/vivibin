@@ -248,7 +248,7 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
         }
     }
     
-    pub fn to_buffer(mut self, domain: D) -> Result<Vec<u8>> {
+    pub fn to_buffer(mut self, domain: D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
         self.heaps.insert(D::Cat::default(), self.default_heap);
@@ -263,6 +263,9 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
             
             for (block_id, block) in heap.blocks.iter().enumerate() {
                 let block_start = writer.position() as usize;
+                if let Some(block_offsets) = block_offsets.as_mut() {
+                    block_offsets.push(block_start);
+                }
                 writer.write_all(block.writer.get_ref())?;
                 
                 // apply previous relocations
@@ -487,8 +490,14 @@ where
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeapToken {
-    pub block_id: u32,
-    pub offset: u32,
+    block_id: u32,
+    offset: u32,
+}
+
+impl HeapToken {
+    pub fn resolve(self, block_offsets: &[usize]) -> usize {
+        block_offsets[self.block_id as usize] + self.offset as usize
+    }
 }
 
 #[derive(Clone, Debug)]

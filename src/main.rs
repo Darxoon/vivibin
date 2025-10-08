@@ -348,6 +348,6 @@ fn main() -> Result<()> {
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
     npc.to_writer(&mut ctx, FormatCgfx::<()>::default())?;
-    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx::<()>::default()));
+    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx::<()>::default(), None));
     Ok(())
 }
