@@ -18,6 +18,8 @@ pub mod util;
 
 pub use vivibin_derive::*;
 
+const ZEROES: &[u8] = &[0; 128];
+
 pub trait Reader: Read + Seek {
     fn position(&mut self) -> Result<u64> {
         Ok(self.stream_position()?)
@@ -221,6 +223,7 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     type Writer: Writer;
     
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
     
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer>;
@@ -291,7 +294,17 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block()?;
+        let new_block_token = self.default_heap.allocate_next_block(0)?;
+        
+        content_callback(self)?;
+        
+        self.default_heap.current_block = prev_current_block;
+        Ok(new_block_token)
+    }
+    
+    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let prev_current_block = self.default_heap.current_block;
+        let new_block_token = self.default_heap.allocate_next_block(alignment)?;
         
         content_callback(self)?;
         
@@ -387,7 +400,17 @@ where
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block()?;
+        let new_block_token = self.default_heap.allocate_next_block(0)?;
+        
+        content_callback(self)?;
+        
+        self.default_heap.current_block = prev_current_block;
+        Ok(new_block_token)
+    }
+    
+    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let prev_current_block = self.default_heap.current_block;
+        let new_block_token = self.default_heap.allocate_next_block(alignment)?;
         
         content_callback(self)?;
         
@@ -509,13 +532,31 @@ impl<W: Writer> WriteHeap<W> {
         Ok(())
     }
     
-    fn allocate_next_block(&mut self) -> Result<HeapToken> {
+    pub fn align_to(&mut self, alignment: usize) -> Result<()> {
+        if alignment == 0 {
+            return Ok(());
+        }
+        
+        let alignment = alignment as isize;
+        let writer = self.cur_writer();
+        let pos = writer.position()? as isize;
+        
+        // bonkers alignment calculation
+        let padding_size = ((alignment - pos) % alignment + alignment) % alignment;
+        
+        writer.write(&ZEROES[..padding_size as usize])?;
+        Ok(())
+    }
+    
+    fn allocate_next_block(&mut self, alignment: usize) -> Result<HeapToken> {
         if self.current_block == self.blocks.len() - 1 {
             // allocate new block
             self.current_block = self.blocks.len();
             self.blocks.push(HeapBlock::new());
+            // TODO: add alignment to HeapBlock
         } else {
             self.current_block += 1;
+            self.align_to(alignment)?;
         }
         
         Ok(HeapToken {
