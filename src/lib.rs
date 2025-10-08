@@ -485,7 +485,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeapToken {
     block_id: u32,
     offset: u32,
