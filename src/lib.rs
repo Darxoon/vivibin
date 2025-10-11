@@ -488,7 +488,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, Hash)]
 pub struct HeapToken {
     block_id: u32,
     offset: u32,
@@ -497,6 +497,16 @@ pub struct HeapToken {
 impl HeapToken {
     pub fn resolve(self, block_offsets: &[usize]) -> usize {
         block_offsets[self.block_id as usize] + self.offset as usize
+    }
+}
+
+impl PartialOrd for HeapToken {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.block_id.partial_cmp(&other.block_id) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.offset.partial_cmp(&other.offset)
     }
 }
 
