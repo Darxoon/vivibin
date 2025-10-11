@@ -297,7 +297,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block(0)?;
+        let new_block_token = self.default_heap.seek_to_new_block(0)?;
         
         content_callback(self)?;
         
@@ -307,7 +307,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     
     fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block(alignment)?;
+        let new_block_token = self.default_heap.seek_to_new_block(alignment)?;
         
         content_callback(self)?;
         
@@ -403,7 +403,7 @@ where
 
     fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block(0)?;
+        let new_block_token = self.default_heap.seek_to_new_block(0)?;
         
         content_callback(self)?;
         
@@ -413,7 +413,7 @@ where
     
     fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.allocate_next_block(alignment)?;
+        let new_block_token = self.default_heap.seek_to_new_block(alignment)?;
         
         content_callback(self)?;
         
@@ -567,7 +567,14 @@ impl<W: Writer> WriteHeap<W> {
         Ok(())
     }
     
-    fn allocate_next_block(&mut self, alignment: usize) -> Result<HeapToken> {
+    pub fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
+        Ok(HeapToken {
+            block_id: self.current_block as u32,
+            offset: self.cur_writer().position()? as u32,
+        })
+    }
+    
+    fn seek_to_new_block(&mut self, alignment: usize) -> Result<HeapToken> {
         if self.current_block == self.blocks.len() - 1 {
             // allocate new block
             self.current_block = self.blocks.len();
@@ -578,10 +585,7 @@ impl<W: Writer> WriteHeap<W> {
             self.align_to(alignment)?;
         }
         
-        Ok(HeapToken {
-            block_id: self.current_block as u32,
-            offset: self.cur_writer().position()? as u32,
-        })
+        self.heap_token_at_current_pos()
     }
 }
 
