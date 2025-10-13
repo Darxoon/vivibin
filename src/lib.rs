@@ -488,6 +488,21 @@ where
     }
 }
 
+pub fn align_to(writer: &mut impl Writer, alignment: usize) -> Result<()> {
+    if alignment == 0 {
+        return Ok(());
+    }
+    
+    let alignment = alignment as isize;
+    let pos = writer.position()? as isize;
+    
+    // bonkers alignment calculation
+    let padding_size = ((alignment - pos) % alignment + alignment) % alignment;
+    
+    writer.write(&ZEROES[..padding_size as usize])?;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, Hash)]
 pub struct HeapToken {
     block_id: u32,
@@ -552,19 +567,7 @@ impl<W: Writer> WriteHeap<W> {
     }
     
     pub fn align_to(&mut self, alignment: usize) -> Result<()> {
-        if alignment == 0 {
-            return Ok(());
-        }
-        
-        let alignment = alignment as isize;
-        let writer = self.cur_writer();
-        let pos = writer.position()? as isize;
-        
-        // bonkers alignment calculation
-        let padding_size = ((alignment - pos) % alignment + alignment) % alignment;
-        
-        writer.write(&ZEROES[..padding_size as usize])?;
-        Ok(())
+        align_to(self.cur_writer(), alignment)
     }
     
     pub fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
