@@ -1,10 +1,16 @@
 use std::{
-    any::TypeId, io::{Cursor, Write}, marker::PhantomData, mem::{transmute, ManuallyDrop}, ptr::read
+    any::TypeId,
+    io::{Cursor, Write},
+    marker::PhantomData,
+    mem::{transmute, ManuallyDrop},
+    ptr::read,
 };
 
 use anyhow::{anyhow, Result};
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, CanWrite, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer
+    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, EndianSpecific,
+    Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt, Readable, Reader,
+    SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer,
 };
 
 // typedef for more convenient access
@@ -150,11 +156,7 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
         Ok(result)
     }
     
-    fn read_unk_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>> {
-        Ok(Some(Self::read_vec(reader, read_content)?))
-    }
-    
-    fn read_unk_std_box<T, R: Reader>(self, _reader: &mut R, _read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>> {
+    fn read_std_box_of<T, R: Reader>(self, _reader: &mut R, _read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>> {
         Ok(None)
     }
     
@@ -169,6 +171,12 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
         reader.set_position(ptr)?;
         
         Ok(Some(parser(reader, self)?))
+    }
+}
+
+impl<C: HeapCategory> CanReadVec for FormatCgfx<C> {
+    fn read_std_vec_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>> {
+        Ok(Some(Self::read_vec(reader, read_content)?))
     }
 }
 
@@ -273,12 +281,12 @@ struct Npc {
     item_ids: Vec<u32>,
 }
 
-impl<D: CanRead<String>> Readable<D> for Npc {
+impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
         let name = domain.read(reader)?;
         let position = domain.read_fallback::<Vec3>(reader)?;
         let is_visible = domain.read_fallback::<bool>(reader)?;
-        let item_ids: Vec<u32> = domain.read_std_vec::<u32, R>(reader)?
+        let item_ids: Vec<u32> = domain.read_std_vec_fallback::<u32, R>(reader)?
             .ok_or_else(|| anyhow!("ReadDomain does not implement read_std_vec"))?;
         
         Ok(Npc {
@@ -348,6 +356,8 @@ fn main() -> Result<()> {
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
     npc.to_writer(&mut ctx, FormatCgfx::<()>::default())?;
-    println!("Written {:#x?}", &ctx.to_buffer(FormatCgfx::<()>::default(), None));
+    let written = ctx.to_buffer(FormatCgfx::<()>::default(), None)?;
+    println!("Written {:#x?}", &written);
+    assert_eq!(&written, &VEC3_BYTES, "Serialization failure, result not matching");
     Ok(())
 }

@@ -107,8 +107,7 @@ pub trait ReadDomain: Copy + EndianSpecific {
     
     // "optional" to implement, return Ok(None) if not
     // TODO: implement more of these/make this more generic for all container types
-    fn read_unk_std_vec<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
-    fn read_unk_std_box<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
+    fn read_std_box_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
     
     // TODO: make these optional to implement? i. e. split them into another Trait
     fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>>;
@@ -122,12 +121,8 @@ pub trait ReadDomainExt: ReadDomain {
         })
     }
     
-    fn read_std_vec<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
-        self.read_unk_std_vec(reader, |reader| self.read_fallback::<T>(reader))
-    }
-    
-    fn read_std_box<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
-        self.read_unk_std_box(reader, |reader| self.read_fallback::<T>(reader))
+    fn read_std_box_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
+        self.read_std_box_of(reader, |reader| self.read_fallback::<T>(reader))
     }
     
     fn read_unk_array<T, R: Reader, const N: usize>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<[T; N]> {
@@ -140,6 +135,30 @@ pub trait ReadDomainExt: ReadDomain {
 }
 
 impl<T: ReadDomain> ReadDomainExt for T {}
+
+// TODO: make this more generic across more container types?
+pub trait CanReadVec: ReadDomain {
+    fn read_std_vec_of<T: 'static, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
+}
+
+pub trait ReadVecFallbackExt: CanReadVec {
+    fn read_std_vec_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
+        self.read_std_vec_of(reader, |reader| self.read_fallback::<T>(reader))
+    }
+}
+
+impl<D: CanReadVec> ReadVecFallbackExt for D {}
+
+pub trait ReadVecExt: CanReadVec {
+    fn read_std_vec<T: 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>>
+    where
+        Self: CanRead<T>
+    {
+        self.read_std_vec_of(reader, |reader| self.read(reader))
+    }
+}
+
+impl<D: CanReadVec> ReadVecExt for D {}
 
 pub trait CanRead<T: 'static>: ReadDomain {
     fn read(self, reader: &mut impl Reader) -> Result<T>;
