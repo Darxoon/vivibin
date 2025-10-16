@@ -264,38 +264,20 @@ impl<C: HeapCategory> CanWrite<String> for FormatCgfx<C> {
     }
 }
 
-#[derive(Debug, Clone, Readable)]
+#[derive(Debug, Clone, Readable, Writable)]
 struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
 }
 
-impl<D: WriteDomain> Writable<D> for Vec3 {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
-        domain.write_fallback::<f32>(ctx, &self.x)?;
-        domain.write_fallback::<f32>(ctx, &self.y)?;
-        domain.write_fallback::<f32>(ctx, &self.z)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Readable)]
+#[derive(Debug, Readable, Writable)]
 #[allow(dead_code)]
 struct SimpleNpc {
     #[require_domain]
     name: String,
     position: Vec3,
     is_visible: bool,
-}
-
-impl<D: CanWrite<String>> Writable<D> for SimpleNpc {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
-        domain.write(ctx, &self.name)?;
-        domain.write_fallback::<Vec3>(ctx, &self.position)?;
-        domain.write_fallback::<bool>(ctx, &self.is_visible)?;
-        Ok(())
-    }
 }
 
 #[derive(Debug)]
@@ -341,19 +323,19 @@ impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
 fn main() -> Result<()> {
     const BYTES: &[u8] = &[
         // name ptr
-        0x1c, 0, 0, 0,
+        0x14, 0, 0, 0,
         // position vec3
         0, 0, 0x80, 0x3f, 0, 0, 0, 0x40, 0, 0, 0, 0x3f,
         // isvisible
         1, 0, 0, 0,
         // item_ids
-        3, 0, 0, 0, 0x10, 0, 0, 0,
+        // 3, 0, 0, 0, 0x10, 0, 0, 0,
         // child
         // 0x10, 0, 0, 0,
         // name string
         0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0,
         // item_ids values
-        0x1, 0, 0, 0, 0x4, 0, 0, 0, 0x8, 0, 0, 0, 
+        // 0x1, 0, 0, 0, 0x4, 0, 0, 0, 0x8, 0, 0, 0, 
         
         // // child
         // // name ptr
@@ -369,7 +351,7 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
-    let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
+    let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {:?}", npc);
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
