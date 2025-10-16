@@ -6,7 +6,7 @@ use std::{
     ptr::read,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use vivibin::{
     pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, EndianSpecific,
     Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt, Readable, Reader,
@@ -175,8 +175,8 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
 }
 
 impl<C: HeapCategory> CanReadVec for FormatCgfx<C> {
-    fn read_std_vec_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>> {
-        Ok(Some(Self::read_vec(reader, read_content)?))
+    fn read_std_vec_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Vec<T>> {
+        Ok(Self::read_vec(reader, read_content)?)
     }
 }
 
@@ -248,15 +248,9 @@ struct Vec3 {
 
 impl<D: WriteDomain> Writable<D> for Vec3 {
     fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
-        if domain.write_unk::<f32>(ctx, &self.x)?.is_none() {
-            self.x.to_writer(ctx, domain)?;
-        }
-        if domain.write_unk::<f32>(ctx, &self.y)?.is_none() {
-            self.y.to_writer(ctx, domain)?;
-        }
-        if domain.write_unk::<f32>(ctx, &self.z)?.is_none() {
-            self.z.to_writer(ctx, domain)?;
-        }
+        domain.write_fallback::<f32>(ctx, &self.x)?;
+        domain.write_fallback::<f32>(ctx, &self.y)?;
+        domain.write_fallback::<f32>(ctx, &self.z)?;
         Ok(())
     }
 }
@@ -286,8 +280,8 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
         let name = domain.read(reader)?;
         let position = domain.read_fallback::<Vec3>(reader)?;
         let is_visible = domain.read_fallback::<bool>(reader)?;
-        let item_ids: Vec<u32> = domain.read_std_vec_fallback::<u32, R>(reader)?
-            .ok_or_else(|| anyhow!("ReadDomain does not implement read_std_vec"))?;
+        // TODO: implement this into derive macros
+        let item_ids: Vec<u32> = domain.read_std_vec_fallback::<u32, R>(reader)?;
         
         Ok(Npc {
             name,

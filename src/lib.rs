@@ -138,11 +138,11 @@ impl<T: ReadDomain> ReadDomainExt for T {}
 
 // TODO: make this more generic across more container types?
 pub trait CanReadVec: ReadDomain {
-    fn read_std_vec_of<T: 'static, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Vec<T>>>;
+    fn read_std_vec_of<T: 'static, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Vec<T>>;
 }
 
 pub trait ReadVecFallbackExt: CanReadVec {
-    fn read_std_vec_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>> {
+    fn read_std_vec_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Vec<T>> {
         self.read_std_vec_of(reader, |reader| self.read_fallback::<T>(reader))
     }
 }
@@ -150,7 +150,7 @@ pub trait ReadVecFallbackExt: CanReadVec {
 impl<D: CanReadVec> ReadVecFallbackExt for D {}
 
 pub trait ReadVecExt: CanReadVec {
-    fn read_std_vec<T: 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Vec<T>>>
+    fn read_std_vec<T: 'static, R: Reader>(self, reader: &mut R) -> Result<Vec<T>>
     where
         Self: CanRead<T>
     {
