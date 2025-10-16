@@ -8,9 +8,10 @@ use std::{
 
 use anyhow::Result;
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, EndianSpecific,
-    Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt, Readable, Reader,
-    SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt, Writer,
+    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteSlice,
+    EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt,
+    Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt,
+    WriteSliceFallbackExt, Writer,
 };
 
 // typedef for more convenient access
@@ -223,6 +224,25 @@ impl<C: HeapCategory> WriteDomain for FormatCgfx<C> {
     }
 }
 
+impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
+    fn write_slice_of<T: 'static, W: WriteCtx>(
+        self,
+        ctx: &mut W,
+        values: &[T],
+        write_content: impl Fn(&mut W, &T) -> Result<()>,
+    ) -> Result<()> {
+        (values.len() as u32).to_writer(ctx, self)?;
+        let item_ids_token = ctx.allocate_next_block(|ctx| {
+            for value in values {
+                write_content(ctx, value)?;
+            }
+            Ok(())
+        })?;
+        ctx.write_token::<4>(item_ids_token)?;
+        Ok(())
+    }
+}
+
 impl<C: HeapCategory> CanWrite<i32> for FormatCgfx<C> {
     fn write(self, ctx: &mut impl WriteCtx, value: &i32) -> Result<()> {
         Self::write_i32(ctx, *value)
@@ -269,6 +289,15 @@ struct SimpleNpc {
     is_visible: bool,
 }
 
+impl<D: CanWrite<String>> Writable<D> for SimpleNpc {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
+        domain.write(ctx, &self.name)?;
+        domain.write_fallback::<Vec3>(ctx, &self.position)?;
+        domain.write_fallback::<bool>(ctx, &self.is_visible)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Npc {
@@ -297,28 +326,20 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     }
 }
 
-impl<D: CanWrite<str>> Writable<D> for Npc {
+impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
     fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
         // TODO: i don't know how this could be implemented with derive
         // TODO: i also don't know if there is any benefit of this over String
         domain.write(ctx, &self.name)?;
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
-        // TODO: add better convenience for this
-        domain.write_fallback(ctx, &(self.item_ids.len() as u32))?;
-        let item_ids_token = ctx.allocate_next_block(|ctx| {
-            for value in &self.item_ids {
-                domain.write_fallback::<u32>(ctx, value)?;
-            }
-            Ok(())
-        })?;
-        ctx.write_token::<4>(item_ids_token)?;
+        domain.write_slice_fallback(ctx, &self.item_ids)?;
         Ok(())
     }
 }
 
 fn main() -> Result<()> {
-    const VEC3_BYTES: [u8; 52] = [
+    const BYTES: &[u8] = &[
         // name ptr
         0x1c, 0, 0, 0,
         // position vec3
@@ -347,14 +368,14 @@ fn main() -> Result<()> {
         // 0x48, 0x69, 0x69, 0x69, 0x69, 0x69, 0, 0,
     ];
     
-    let mut cursor: Cursor<&[u8]> = Cursor::new(&VEC3_BYTES);
+    let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
     let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {:?}", npc);
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
     npc.to_writer(&mut ctx, FormatCgfx::<()>::default())?;
     let written = ctx.to_buffer(FormatCgfx::<()>::default(), None)?;
-    println!("Written {:#x?}", &written);
-    assert_eq!(&written, &VEC3_BYTES, "Serialization failure, result not matching");
+    println!("Written {:x?}", &written);
+    assert_eq!(&written, &BYTES, "Serialization failure, result not matching");
     Ok(())
 }

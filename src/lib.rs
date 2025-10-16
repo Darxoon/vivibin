@@ -213,6 +213,39 @@ pub trait WriteDomainExt: WriteDomain {
 
 impl<T: WriteDomain> WriteDomainExt for T {}
 
+pub trait CanWriteSlice: WriteDomain {
+    fn write_slice_of<T: 'static, W: WriteCtx>(
+        self,
+        ctx: &mut W,
+        values: &[T],
+        write_content: impl Fn(&mut W, &T) -> Result<()>,
+    ) -> Result<()>;
+}
+
+pub trait WriteSliceFallbackExt: CanWriteSlice {
+    fn write_slice_fallback<T: Writable<Self> + 'static>(self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()> {
+        self.write_slice_of(ctx, values, |ctx, value| {
+            self.write_fallback::<T>(ctx, value)
+        })
+    }
+}
+
+impl<D: CanWriteSlice> WriteSliceFallbackExt for D {}
+
+pub trait WriteSliceExt: CanWriteSlice {
+    fn write_slice<T: 'static>(self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()>
+    where
+        Self: CanWrite<T>
+    {
+        self.write_slice_of(ctx, values, |ctx, value| {
+            self.write(ctx, value)
+        })
+    }
+}
+
+impl<D: CanWriteSlice> WriteSliceExt for D {}
+
+
 pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
     fn write(self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
 }
