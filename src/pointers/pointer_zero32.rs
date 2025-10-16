@@ -131,7 +131,7 @@ impl AnyReadable for PointerZero32 {
 }
 
 impl<D: WriteDomain> SimpleWritable<D> for PointerZero32 {
-    fn to_writer_simple(&self, writer: &mut impl Writer, domain: D) -> Result<()> {
+    fn to_writer_simple(&self, writer: &mut impl Writer, domain: &mut D) -> Result<()> {
         self.0.to_writer_simple(writer, domain)?;
         Ok(())
     }

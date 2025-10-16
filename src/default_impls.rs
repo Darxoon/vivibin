@@ -20,7 +20,7 @@ macro_rules! impl_rw_number {
         }
         
         impl<D: WriteDomain> SimpleWritable<D> for $type {
-            fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
+            fn to_writer_simple(&self, ctx: &mut impl Writer, domain: &mut D) -> Result<()> {
                 let bytes = match domain.endianness() {
                     Endianness::Little => self.to_le_bytes(),
                     Endianness::Big => self.to_be_bytes(),
@@ -83,7 +83,7 @@ impl ReadableWithArgs<BoolSize> for bool {
 
 // TODO: allow specifying size
 impl<D: WriteDomain> SimpleWritable<D> for bool {
-    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
+    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: &mut D) -> Result<()> {
         (*self as u32).to_writer_simple(ctx, domain)?;
         Ok(())
     }

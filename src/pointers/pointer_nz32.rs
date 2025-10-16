@@ -134,7 +134,7 @@ impl AnyReadable for PointerNonZero32 {
 }
 
 impl<D: WriteDomain> SimpleWritable<D> for PointerNonZero32 {
-    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
+    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: &mut D) -> Result<()> {
         self.0.get().to_writer_simple(ctx, domain)?;
         Ok(())
     }
@@ -152,7 +152,7 @@ impl AnyReadable for Option<PointerNonZero32> {
 }
 
 impl<D: WriteDomain> SimpleWritable<D> for Option<PointerNonZero32> {
-    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: D) -> Result<()> {
+    fn to_writer_simple(&self, ctx: &mut impl Writer, domain: &mut D) -> Result<()> {
         let value: u32 = self.map(|x| x.0.get()).unwrap_or(0);
         value.to_writer_simple(ctx, domain)?;
         Ok(())

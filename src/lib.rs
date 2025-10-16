@@ -96,7 +96,7 @@ pub enum Endianness {
 }
 
 pub trait EndianSpecific {
-    fn endianness(self) -> Endianness;
+    fn endianness(&self) -> Endianness;
 }
 
 // reading / parsing
@@ -186,13 +186,14 @@ impl<A: AnyReadable, D: ReadDomain> Readable<D> for A {
 // writing / serializing
 pub trait HeapCategory: Eq + Hash + Ord + Default + Clone {}
 
-pub trait WriteDomain: Copy + EndianSpecific {
+// TODO: does this have to be sized?
+pub trait WriteDomain: Sized + EndianSpecific {
     // TODO: split these into another trait
     type Pointer;
     type Cat: HeapCategory;
     
-    fn write_unk<T: 'static>(self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
-    fn apply_reference(self, writer: &mut impl Writer, heap_offset: usize) -> Result<()>;
+    fn write_unk<T: 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
+    fn apply_reference(&mut self, writer: &mut impl Writer, heap_offset: usize) -> Result<()>;
     
     // TODO: writing with args
     // TODO: boxed serializing
@@ -203,7 +204,7 @@ pub trait WriteDomainExt: WriteDomain {
         WriteCtxImpl::new()
     }
     
-    fn write_fallback<T: Writable<Self> + 'static>(self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
+    fn write_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
         if self.write_unk::<T>(ctx, &value)?.is_none() {
             value.to_writer(ctx, self)?;
         }
@@ -215,17 +216,17 @@ impl<T: WriteDomain> WriteDomainExt for T {}
 
 pub trait CanWriteSlice: WriteDomain {
     fn write_slice_of<T: 'static, W: WriteCtx>(
-        self,
+        &mut self,
         ctx: &mut W,
         values: &[T],
-        write_content: impl Fn(&mut W, &T) -> Result<()>,
+        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
     ) -> Result<()>;
 }
 
 pub trait WriteSliceFallbackExt: CanWriteSlice {
-    fn write_slice_fallback<T: Writable<Self> + 'static>(self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()> {
-        self.write_slice_of(ctx, values, |ctx, value| {
-            self.write_fallback::<T>(ctx, value)
+    fn write_slice_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()> {
+        self.write_slice_of(ctx, values, |domain, ctx, value| {
+            domain.write_fallback::<T>(ctx, value)
         })
     }
 }
@@ -233,12 +234,12 @@ pub trait WriteSliceFallbackExt: CanWriteSlice {
 impl<D: CanWriteSlice> WriteSliceFallbackExt for D {}
 
 pub trait WriteSliceExt: CanWriteSlice {
-    fn write_slice<T: 'static>(self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()>
+    fn write_slice<T: 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()>
     where
         Self: CanWrite<T>
     {
-        self.write_slice_of(ctx, values, |ctx, value| {
-            self.write(ctx, value)
+        self.write_slice_of(ctx, values, |domain, ctx, value| {
+            domain.write(ctx, value)
         })
     }
 }
@@ -247,26 +248,26 @@ impl<D: CanWriteSlice> WriteSliceExt for D {}
 
 
 pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
-    fn write(self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
+    fn write(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
 }
 
 pub trait CanWriteWithArgs<T: 'static, A: Default>: CanWrite<T> {
-    fn write_args(self, ctx: &mut impl WriteCtx, value: &T, args: A) -> Result<()>;
+    fn write_args(&mut self, ctx: &mut impl WriteCtx, value: &T, args: A) -> Result<()>;
 }
 
 pub trait Writable<D: WriteDomain>: Sized {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()>;
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()>;
 }
 
 pub trait SimpleWritable<D: WriteDomain>: Sized {
-    fn to_writer_simple(&self, writer: &mut impl Writer, domain: D) -> Result<()>;
+    fn to_writer_simple(&self, writer: &mut impl Writer, domain: &mut D) -> Result<()>;
 }
 
 #[macro_export]
 macro_rules! impl_writable_from_simple {
     ($type:ty) => {
         impl<D: $crate::WriteDomain> $crate::Writable<D> for $type {
-            fn to_writer(&self, ctx: &mut impl $crate::WriteCtx, domain: D) -> Result<()> {
+            fn to_writer(&self, ctx: &mut impl $crate::WriteCtx, domain: &mut D) -> Result<()> {
                 self.to_writer_simple(ctx.cur_writer(), domain)
             }
         }
@@ -304,7 +305,7 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
         }
     }
     
-    pub fn to_buffer(mut self, domain: D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
+    pub fn to_buffer(mut self, domain: &mut D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
         self.heaps.insert(D::Cat::default(), self.default_heap);
