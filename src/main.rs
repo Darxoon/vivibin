@@ -233,6 +233,11 @@ impl<C: HeapCategory> CanWrite<u32> for FormatCgfx<C> {
         Self::write_u32(ctx, *value)
     }
 }
+impl<C: HeapCategory> CanWrite<str> for FormatCgfx<C> {
+    fn write(self, ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
+        Self::write_str(ctx, value)
+    }
+}
 impl<C: HeapCategory> CanWrite<String> for FormatCgfx<C> {
     fn write(self, ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
         Self::write_str(ctx, value)
@@ -292,13 +297,11 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     }
 }
 
-impl<D: WriteDomain> Writable<D> for Npc {
+impl<D: CanWrite<str>> Writable<D> for Npc {
     fn to_writer(&self, ctx: &mut impl WriteCtx, domain: D) -> Result<()> {
-        // TODO: should I add a special case for &str
-        // TODO: explicit trait bound
-        if domain.write_unk::<String>(ctx, &self.name)?.is_none() {
-            panic!(); // String does not have a default implementation
-        }
+        // TODO: i don't know how this could be implemented with derive
+        // TODO: i also don't know if there is any benefit of this over String
+        domain.write(ctx, &self.name)?;
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
         // TODO: add better convenience for this

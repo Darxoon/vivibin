@@ -213,7 +213,7 @@ pub trait WriteDomainExt: WriteDomain {
 
 impl<T: WriteDomain> WriteDomainExt for T {}
 
-pub trait CanWrite<T: 'static>: WriteDomain  {
+pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
     fn write(self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
 }
 
