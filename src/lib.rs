@@ -246,6 +246,38 @@ pub trait WriteSliceExt: CanWriteSlice {
 
 impl<D: CanWriteSlice> WriteSliceExt for D {}
 
+pub trait CanWriteSliceWithArgs<A>: WriteDomain {
+    fn write_slice_args_of<T: 'static, W: WriteCtx>(
+        &mut self,
+        ctx: &mut W,
+        values: &[T],
+        args: A,
+        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+    ) -> Result<()>;
+}
+
+pub trait WriteSliceWithArgsFallbackExt<A>: CanWriteSliceWithArgs<A> {
+    fn write_slice_args_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
+        self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
+            domain.write_fallback::<T>(ctx, value)
+        })
+    }
+}
+
+impl<A, D: CanWriteSliceWithArgs<A>> WriteSliceWithArgsFallbackExt<A> for D {}
+
+pub trait WriteSliceWithArgsExt<A>: CanWriteSliceWithArgs<A> {
+    fn write_slice_args<T: 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()>
+    where
+        Self: CanWrite<T>
+    {
+        self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
+            domain.write(ctx, value)
+        })
+    }
+}
+
+impl<A, D: CanWriteSliceWithArgs<A>> WriteSliceWithArgsExt<A> for D {}
 
 pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
     fn write(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
