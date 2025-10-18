@@ -246,8 +246,8 @@ pub trait WriteSliceExt: CanWriteSlice {
 
 impl<D: CanWriteSlice> WriteSliceExt for D {}
 
-pub trait CanWriteSliceWithArgs<A>: WriteDomain {
-    fn write_slice_args_of<T: 'static, W: WriteCtx>(
+pub trait CanWriteSliceWithArgs<T: 'static, A>: WriteDomain {
+    fn write_slice_args_of<W: WriteCtx>(
         &mut self,
         ctx: &mut W,
         values: &[T],
@@ -256,28 +256,25 @@ pub trait CanWriteSliceWithArgs<A>: WriteDomain {
     ) -> Result<()>;
 }
 
-pub trait WriteSliceWithArgsFallbackExt<A>: CanWriteSliceWithArgs<A> {
-    fn write_slice_args_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
+pub trait WriteSliceWithArgsFallbackExt<T: Writable<Self> + 'static, A>: CanWriteSliceWithArgs<T, A> {
+    fn write_slice_args_fallback(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
             domain.write_fallback::<T>(ctx, value)
         })
     }
 }
 
-impl<A, D: CanWriteSliceWithArgs<A>> WriteSliceWithArgsFallbackExt<A> for D {}
+impl<T: Writable<Self> + 'static, A, D: CanWriteSliceWithArgs<T, A>> WriteSliceWithArgsFallbackExt<T, A> for D {}
 
-pub trait WriteSliceWithArgsExt<A>: CanWriteSliceWithArgs<A> {
-    fn write_slice_args<T: 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()>
-    where
-        Self: CanWrite<T>
-    {
+pub trait WriteSliceWithArgsExt<T: 'static, A>: CanWriteSliceWithArgs<T, A> + CanWrite<T> {
+    fn write_slice_args(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
             domain.write(ctx, value)
         })
     }
 }
 
-impl<A, D: CanWriteSliceWithArgs<A>> WriteSliceWithArgsExt<A> for D {}
+impl<T: 'static, A, D: CanWrite<T> + CanWriteSliceWithArgs<T, A>> WriteSliceWithArgsExt<T, A> for D {}
 
 pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
     fn write(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
