@@ -12,7 +12,8 @@ impl<'a> NamedField<'a> {
     fn write_read_statement(&self, domain: &Ident, reader: &Ident, required_domain_impls: &[&Type]) -> (Ident, TokenStream) {
         let NamedField { name, ty, .. } = *self;
         
-        let name = format_ident!("_{name}");
+        let name_string = name.to_string();
+        let name = format_ident!("_{}", name_string.strip_prefix("r#").unwrap_or(&name_string));
         
         // TODO: try getting away from extra-traits
         let explicit_read_impl = required_domain_impls.iter().copied()
