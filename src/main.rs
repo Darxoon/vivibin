@@ -23,7 +23,7 @@ struct FormatCgfx<C: HeapCategory>(PhantomData<C>); // cgfx is an actual data ty
 impl<C: HeapCategory> FormatCgfx<C> {
     pub fn read_i32(reader: &mut impl Reader) -> Result<i32> {
         let mut bytes: [u8; 4] = Default::default();
-        reader.read(&mut bytes)?;
+        reader.read_exact(&mut bytes)?;
         
         Ok(match Self::default().endianness() {
             Endianness::Little => i32::from_le_bytes(bytes),
@@ -37,13 +37,13 @@ impl<C: HeapCategory> FormatCgfx<C> {
             Endianness::Big => value.to_be_bytes(),
         };
         
-        ctx.write(&bytes)?;
+        ctx.write_all(&bytes)?;
         Ok(())
     }
     
     pub fn read_u32(reader: &mut impl Reader) -> Result<u32> {
         let mut bytes: [u8; 4] = Default::default();
-        reader.read(&mut bytes)?;
+        reader.read_exact(&mut bytes)?;
         
         Ok(match Self::default().endianness() {
             Endianness::Little => u32::from_le_bytes(bytes),
@@ -57,7 +57,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
             Endianness::Big => value.to_be_bytes(),
         };
         
-        ctx.write(&bytes)?;
+        ctx.write_all(&bytes)?;
         Ok(())
     }
     
@@ -82,7 +82,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
         scoped_reader_pos!(reader); // jump to pointer will be undone in destructor
         reader.set_position(ptr)?;
         
-        Ok(reader.read_c_str()?)
+        reader.read_c_str()
     }
     
     pub fn write_str(ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
@@ -107,10 +107,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
             Ok(result)
         })?;
         
-        Ok(match content {
-            Some(content) => content,
-            None => Vec::new(),
-        })
+        Ok(content.unwrap_or_default())
     }
 }
 
@@ -177,7 +174,7 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
 
 impl<C: HeapCategory> CanReadVec for FormatCgfx<C> {
     fn read_std_vec_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Vec<T>> {
-        Ok(Self::read_vec(reader, read_content)?)
+        Self::read_vec(reader, read_content)
     }
 }
 

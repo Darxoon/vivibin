@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use std::{
     cmp::Eq,
     collections::HashMap,
@@ -76,13 +77,13 @@ pub trait Writer: Write + Seek + Default {
     }
     
     fn write_str(&mut self, string: &str) -> Result<()> {
-        self.write(string.as_bytes())?;
+        self.write_all(string.as_bytes())?;
         Ok(())
     }
     
     fn write_c_str(&mut self, string: &str) -> Result<()> {
         self.write_str(string)?;
-        self.write(&[0])?;
+        self.write_all(&[0])?;
         Ok(())
     }
 }
@@ -205,7 +206,7 @@ pub trait WriteDomainExt: WriteDomain {
     }
     
     fn write_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
-        if self.write_unk::<T>(ctx, &value)?.is_none() {
+        if self.write_unk::<T>(ctx, value)?.is_none() {
             value.to_writer(ctx, self)?;
         }
         Ok(())
@@ -355,8 +356,10 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
                 writer.write_all(block.writer.get_ref())?;
                 
                 // apply previous relocations
-                let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)|
-                    token.block_id as usize == block_id);
+                #[allow(clippy::let_with_type_underscore)]
+                let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)| {
+                    token.block_id as usize == block_id
+                });
                 
                 for (offset, token) in all_relocations_to_current {
                     let writer_pos = writer.position();
@@ -374,6 +377,12 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
         }
         
         Ok(writer.into_inner())
+    }
+}
+
+impl<T: WriteDomain> Default for WriteCtxImpl<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -415,7 +424,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
             &mut self.default_heap
         } else {
             // wow HashMap::entry is such a cool api actually
-            self.heaps.entry(category).or_insert_with(WriteHeap::new)
+            self.heaps.entry(category).or_default()
         }
     }
     
@@ -433,7 +442,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
         } else {
             self.heaps
                 .remove(category)
-                .unwrap_or_else(|| WriteHeap::new())
+                .unwrap_or_default()
         }
     }
 }
@@ -585,11 +594,11 @@ pub fn align_to(writer: &mut impl Writer, alignment: usize) -> Result<()> {
     // bonkers alignment calculation
     let padding_size = ((alignment - pos) % alignment + alignment) % alignment;
     
-    writer.write(&ZEROES[..padding_size as usize])?;
+    writer.write_all(&ZEROES[..padding_size as usize])?;
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeapToken {
     block_id: u32,
     offset: u32,
@@ -603,15 +612,21 @@ impl HeapToken {
 
 impl PartialOrd for HeapToken {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.block_id.partial_cmp(&other.block_id) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.offset.partial_cmp(&other.offset)
+        Some(self.cmp(other))
     }
 }
 
-#[derive(Clone, Debug)]
+impl Ord for HeapToken {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.block_id.cmp(&other.block_id) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        self.offset.cmp(&other.offset)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct HeapBlock<W: Writer> {
     relocations: Vec<(usize, HeapToken)>,
     writer: W,
@@ -619,14 +634,10 @@ pub struct HeapBlock<W: Writer> {
 
 impl<W: Writer> HeapBlock<W> {
     pub fn new() -> Self {
-        HeapBlock {
-            relocations: Vec::new(),
-            writer: W::default(),
-        }
+        Self::default()
     }
 }
 
-#[derive(Default)]
 pub struct WriteHeap<W: Writer> {
     current_block: usize,
     blocks: Vec<HeapBlock<W>>,
@@ -675,6 +686,12 @@ impl<W: Writer> WriteHeap<W> {
         }
         
         self.heap_token_at_current_pos()
+    }
+}
+
+impl<W: Writer> Default for WriteHeap<W> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

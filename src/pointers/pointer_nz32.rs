@@ -147,7 +147,7 @@ impl_writable_from_simple!(PointerNonZero32);
 impl AnyReadable for Option<PointerNonZero32> {
     fn from_reader_any<R: Reader>(reader: &mut R, domain: impl ReadDomain) -> Result<Self> {
         let value = u32::from_reader_any(reader, domain)?;
-        Ok(NonZeroU32::new(value).map(|value| PointerNonZero32(value)))
+        Ok(NonZeroU32::new(value).map(PointerNonZero32))
     }
 }
 

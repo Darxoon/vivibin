@@ -26,7 +26,7 @@ macro_rules! impl_rw_number {
                     Endianness::Big => self.to_be_bytes(),
                 };
                 
-                ctx.write(&bytes)?;
+                ctx.write_all(&bytes)?;
                 Ok(())
             }
         }

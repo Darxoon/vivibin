@@ -153,7 +153,7 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         quote! { #(::vivibin::CanRead<#required_domain_impls>)+* }
     };
     
-    return quote! {
+    quote! {
         impl<D: #constraint> ::vivibin::Readable<D> for #name {
             fn from_reader<R: ::vivibin::Reader>(
                 reader: &mut R,
@@ -162,7 +162,7 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 #body
             }
         }
-    }.into();
+    }.into()
 }
 
 #[proc_macro_derive(Writable, attributes(require_domain))]
@@ -201,12 +201,12 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         quote! { #(::vivibin::CanWrite<#required_domain_impls>)+* }
     };
     
-    return quote! {
+    quote! {
         impl<D: #constraint> ::vivibin::Writable<D> for #name {
             fn to_writer(&self, ctx: &mut impl ::vivibin::WriteCtx, domain: &mut D) -> ::anyhow::Result<()> {
                 #body
                 Ok(())
             }
         }
-    }.into();
+    }.into()
 }
