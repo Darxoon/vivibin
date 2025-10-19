@@ -9,6 +9,10 @@ array-init = "2.1.0"
 byteorder = "1.5.0"
 vivibin_derive = { path = "vivibin_derive" }
 
+[lints.clippy]
+std_instead_of_core = "warn"
+std_instead_of_alloc = "warn"
+
 [workspace]
 resolver = "2"
 members = ["vivibin_derive"]

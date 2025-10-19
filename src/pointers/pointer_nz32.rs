@@ -1,9 +1,13 @@
-use std::{fmt::Debug, io::{Read, Write}, num::NonZeroU32};
+use alloc::fmt::{self, Debug};
+use core::num::NonZeroU32;
+use std::io::{Read, Write};
 
 use anyhow::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::{impl_writable_from_simple, AnyReadable, ReadDomain, Reader, SimpleWritable, WriteDomain, Writer};
+use crate::{
+    impl_writable_from_simple, AnyReadable, ReadDomain, Reader, SimpleWritable, WriteDomain, Writer,
+};
 
 // macro_rules! from_type {
 //     ($t:ident, $from:ty) => {
@@ -162,7 +166,7 @@ impl<D: WriteDomain> SimpleWritable<D> for Option<PointerNonZero32> {
 impl_writable_from_simple!(Option<PointerNonZero32>);
 
 impl Debug for PointerNonZero32 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("Pointer({:#x})", self.0))
     }
 }

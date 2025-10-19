@@ -1,10 +1,10 @@
-use std::{
+use core::{
     any::TypeId,
-    io::{Cursor, Write},
     marker::PhantomData,
     mem::{transmute, ManuallyDrop},
     ptr::read,
 };
+use std::io::{Cursor, Write};
 
 use anyhow::Result;
 use vivibin::{

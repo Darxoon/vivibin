@@ -1,13 +1,16 @@
-use core::cmp::Ordering;
-use std::{
-    cmp::Eq,
-    collections::HashMap,
+extern crate alloc;
+
+use core::{
+    cmp::{Eq, Ordering},
     default::Default,
     hash::Hash,
-    io::{Cursor, Read, Seek, SeekFrom, Write},
     mem,
     ops::{Deref, DerefMut},
     str::from_utf8,
+};
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read, Seek, SeekFrom, Write},
 };
 
 use anyhow::Result;
@@ -611,13 +614,13 @@ impl HeapToken {
 }
 
 impl PartialOrd for HeapToken {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for HeapToken {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         match self.block_id.cmp(&other.block_id) {
             Ordering::Equal => {}
             ord => return ord,

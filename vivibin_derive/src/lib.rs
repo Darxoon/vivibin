@@ -63,11 +63,7 @@ impl<'a> Structure<'a> {
             Structure::Named(named_fields) => {
                 named_fields.iter()
                     .filter_map(|field| {
-                        if field.explicit_require_domain {
-                            Some(field.ty)
-                        } else {
-                            None
-                        }
+                        field.explicit_require_domain.then_some(field.ty)
                     })
                     .collect()
             },
