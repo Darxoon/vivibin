@@ -1,82 +1,82 @@
-use std::{fmt::Debug, io::{Read, Seek, Write}, num::NonZeroU32, ops::{Add, Sub}};
+use std::{fmt::Debug, io::{Read, Write}, num::NonZeroU32};
 
 use anyhow::{Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::{impl_writable_from_simple, AnyReadable, ReadDomain, Reader, SimpleWritable, WriteDomain, Writer};
 
-macro_rules! from_type {
-    ($t:ident, $from:ty) => {
-        impl From<$from> for $t {
-            fn from(value: $from) -> Self {
-                PointerZero32(value.into())
-            }
-        }
+// macro_rules! from_type {
+//     ($t:ident, $from:ty) => {
+//         impl From<$from> for $t {
+//             fn from(value: $from) -> Self {
+//                 PointerZero32(value.into())
+//             }
+//         }
         
-        impl Add<$from> for $t {
-            type Output = Self;
+//         impl Add<$from> for $t {
+//             type Output = Self;
         
-            fn add(self, rhs: $from) -> Self {
-                $t(self.0 + u32::from(rhs))
-            }
-        }
+//             fn add(self, rhs: $from) -> Self {
+//                 $t(self.0 + u32::from(rhs))
+//             }
+//         }
         
-        impl Sub<$from> for $t {
-            type Output = Self;
+//         impl Sub<$from> for $t {
+//             type Output = Self;
         
-            fn sub(self, rhs: $from) -> Self {
-                $t(self.0 - u32::from(rhs))
-            }
-        }
-    };
-}
+//             fn sub(self, rhs: $from) -> Self {
+//                 $t(self.0 - u32::from(rhs))
+//             }
+//         }
+//     };
+// }
 
-macro_rules! from_type_unwrap {
-    ($t:ident, $from:ty) => {
-        impl From<$from> for $t {
-            fn from(value: $from) -> Self {
-                PointerZero32(value.try_into().unwrap())
-            }
-        }
+// macro_rules! from_type_unwrap {
+//     ($t:ident, $from:ty) => {
+//         impl From<$from> for $t {
+//             fn from(value: $from) -> Self {
+//                 PointerZero32(value.try_into().unwrap())
+//             }
+//         }
         
-        impl Add<$from> for $t {
-            type Output = Self;
+//         impl Add<$from> for $t {
+//             type Output = Self;
         
-            fn add(self, rhs: $from) -> Self {
-                // it's beautiful
-                $t((i32::try_from(self.0).unwrap() + i32::try_from(rhs).unwrap()).try_into().unwrap())
-            }
-        }
+//             fn add(self, rhs: $from) -> Self {
+//                 // it's beautiful
+//                 $t((i32::try_from(self.0).unwrap() + i32::try_from(rhs).unwrap()).try_into().unwrap())
+//             }
+//         }
         
-        impl Sub<$from> for $t {
-            type Output = Self;
+//         impl Sub<$from> for $t {
+//             type Output = Self;
         
-            fn sub(self, rhs: $from) -> Self {
-                $t((i32::try_from(self.0).unwrap() - i32::try_from(rhs).unwrap()).try_into().unwrap())
-            }
-        }
-    };
-}
+//             fn sub(self, rhs: $from) -> Self {
+//                 $t((i32::try_from(self.0).unwrap() - i32::try_from(rhs).unwrap()).try_into().unwrap())
+//             }
+//         }
+//     };
+// }
 
-macro_rules! into_type {
-    ($t:ident, $into:ty) => {
-        impl From<$t> for $into {
-            fn from(value: $t) -> Self {
-                value.0.into()
-            }
-        }
-    };
-}
+// macro_rules! into_type {
+//     ($t:ident, $into:ty) => {
+//         impl From<$t> for $into {
+//             fn from(value: $t) -> Self {
+//                 value.0.into()
+//             }
+//         }
+//     };
+// }
 
-macro_rules! into_type_unwrap {
-    ($t:ident, $into:ty) => {
-        impl From<$t> for $into {
-            fn from(value: $t) -> Self {
-                value.0.try_into().unwrap()
-            }
-        }
-    };
-}
+// macro_rules! into_type_unwrap {
+//     ($t:ident, $into:ty) => {
+//         impl From<$t> for $into {
+//             fn from(value: $t) -> Self {
+//                 value.0.try_into().unwrap()
+//             }
+//         }
+//     };
+// }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PointerNonZero32(NonZeroU32);
