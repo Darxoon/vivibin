@@ -84,7 +84,7 @@ impl ReadableWithArgs<BoolSize> for bool {
 // TODO: allow specifying size
 impl<D: WriteDomain> SimpleWritable<D> for bool {
     fn to_writer_simple(&self, ctx: &mut impl Writer, domain: &mut D) -> Result<()> {
-        (*self as u32).to_writer_simple(ctx, domain)?;
+        u32::from(*self).to_writer_simple(ctx, domain)?;
         Ok(())
     }
 }

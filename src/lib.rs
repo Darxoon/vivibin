@@ -488,7 +488,7 @@ where
     }
 }
 
-impl<'a, T, C> WriteCtx for InnerWriteCtx<'a, T, C>
+impl<T, C> WriteCtx for InnerWriteCtx<'_, T, C>
 where
     T: WriteDomain,
     C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
@@ -549,7 +549,7 @@ where
     }
 }
 
-impl<'a, T, C> Deref for InnerWriteCtx<'a, T, C>
+impl<T, C> Deref for InnerWriteCtx<'_, T, C>
 where
     T: WriteDomain,
     C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
@@ -561,7 +561,7 @@ where
     }
 }
 
-impl<'a, T, C> DerefMut for InnerWriteCtx<'a, T, C>
+impl<T, C> DerefMut for InnerWriteCtx<'_, T, C>
 where
     T: WriteDomain,
     C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
@@ -571,7 +571,7 @@ where
     }
 }
 
-impl<'a, T, C> Drop for InnerWriteCtx<'a, T, C>
+impl<T, C> Drop for InnerWriteCtx<'_, T, C>
 where
     T: WriteDomain,
     C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,

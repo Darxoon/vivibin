@@ -8,7 +8,7 @@ struct NamedField<'a> {
     explicit_require_domain: bool,
 }
 
-impl<'a> NamedField<'a> {
+impl NamedField<'_> {
     fn write_read_statement(&self, domain: &Ident, reader: &Ident, required_domain_impls: &[&Type]) -> (Ident, TokenStream) {
         let NamedField { name, ty, .. } = *self;
         
@@ -62,7 +62,7 @@ impl<'a> Structure<'a> {
         match self {
             Structure::Named(named_fields) => {
                 named_fields.iter()
-                    .flat_map(|field| {
+                    .filter_map(|field| {
                         if field.explicit_require_domain {
                             Some(field.ty)
                         } else {
@@ -71,7 +71,7 @@ impl<'a> Structure<'a> {
                     })
                     .collect()
             },
-            _ => todo!(),
+            Self::Tuple(_) => todo!(),
         }
     }
     
@@ -81,7 +81,7 @@ impl<'a> Structure<'a> {
                 named_fields.iter()
                     .map(|field| field.name)
             },
-            _ => todo!(),
+            Self::Tuple(_) => todo!(),
         }
     }
     

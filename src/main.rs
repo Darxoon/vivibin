@@ -349,12 +349,12 @@ fn main() -> Result<()> {
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
     let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
-    println!("Hello World {:?}", npc);
+    println!("Hello World {npc:?}");
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
     npc.to_writer(&mut ctx, &mut FormatCgfx::<()>::default())?;
     let written = ctx.to_buffer(&mut FormatCgfx::<()>::default(), None)?;
-    println!("Written {:x?}", &written);
+    println!("Written {written:x?}");
     assert_eq!(&written, &BYTES, "Serialization failure, result not matching");
     Ok(())
 }

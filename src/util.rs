@@ -18,7 +18,7 @@ impl<'a, R: Seek> SeekGuard<'a, R> {
     }
 }
 
-impl<'a, R: Seek> Drop for SeekGuard<'a, R> {
+impl<R: Seek> Drop for SeekGuard<'_, R> {
     fn drop(&mut self) {
         self.seek.seek(SeekFrom::Start(self.start_pos)).unwrap();
     }
