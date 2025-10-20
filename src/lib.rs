@@ -8,13 +8,12 @@ use core::{
     ops::{Deref, DerefMut},
     str::from_utf8,
 };
-use std::{
-    collections::HashMap,
-    io::{Cursor, Read, Seek, SeekFrom, Write},
-};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 use anyhow::Result;
 use array_init::try_array_init;
+
+use crate::util::HashMap;
 
 pub mod default_impls;
 pub mod pointers;

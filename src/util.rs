@@ -2,6 +2,9 @@ use std::io::{Seek, SeekFrom};
 
 use anyhow::Result;
 
+#[cfg(feature = "hashbrown")]
+pub use hashbrown::HashMap;
+
 pub struct SeekGuard<'a, R: Seek> {
     pub seek: &'a mut R,
     start_pos: u64,
