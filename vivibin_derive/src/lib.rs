@@ -1,6 +1,9 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Ident, Type};
+use syn::{
+    parse_macro_input, AngleBracketedGenericArguments, Data, DataStruct, DeriveInput,
+    GenericArgument, Ident, PathArguments, Type, TypePath,
+};
 
 struct NamedField<'a> {
     name: &'a Ident,
@@ -9,43 +12,95 @@ struct NamedField<'a> {
 }
 
 impl NamedField<'_> {
-    fn write_read_statement(&self, domain: &Ident, reader: &Ident, required_domain_impls: &[&Type]) -> (Ident, TokenStream) {
+    fn write_read_statement(&self, domain: &Ident, reader: &Ident, vec_required: &mut bool, required_domain_impls: &[&Type]) -> (Ident, TokenStream) {
         let NamedField { name, ty, .. } = *self;
         
         let name_string = name.to_string();
         let name = format_ident!("_{}", name_string.strip_prefix("r#").unwrap_or(&name_string));
         
+        let inner_vec_type = Self::get_vec_inner_type(ty);
+        
         // TODO: try getting away from extra-traits
         let explicit_read_impl = required_domain_impls.iter().copied()
             .any(|current| current == ty);
         
-        let tokens = if explicit_read_impl {
-            quote! {
+        let tokens = match (inner_vec_type, explicit_read_impl) {
+            (None, true) => quote! {
                 let #name: #ty = ::vivibin::CanRead::<#ty>::read(domain, reader)?;
-            }
-        } else {
-            quote! {
+            },
+            (None, false) => quote! {
                 let #name: #ty = ::vivibin::ReadDomainExt::read_fallback::<#ty>(#domain, #reader)?;
-            }
+            },
+            (Some(inner_ty), true) => {
+                *vec_required = true;
+                quote! {
+                    let #name: #ty = ::vivibin::ReadVecExt::read_std_vec::<#inner_ty, R>(#domain, #reader)?;
+                }
+            },
+            (Some(inner_ty), false) => {
+                *vec_required = true;
+                quote! {
+                    let #name: #ty = ::vivibin::ReadVecFallbackExt::read_std_vec_fallback::<#inner_ty, R>(#domain, #reader)?;
+                }
+            },
         };
         
         (name, tokens)
     }
     
-    fn write_write_statement(&self, domain: &Ident, ctx: &Ident, required_domain_impls: &[&Type]) -> TokenStream {
+    fn write_write_statement(&self, domain: &Ident, ctx: &Ident, vec_required: &mut bool, required_domain_impls: &[&Type]) -> TokenStream {
         let NamedField { name, ty, .. } = *self;
+        
+        let inner_vec_type = Self::get_vec_inner_type(ty);
         
         let explicit_write_impl = required_domain_impls.iter().copied()
             .any(|current| current == ty);
         
-        if explicit_write_impl {
-            quote! {
+        match (inner_vec_type, explicit_write_impl) {
+            (None, true) => quote! {
                 ::vivibin::CanWrite::<#ty>::write(#domain, #ctx, &self.#name)?;
-            }
-        } else {
-            quote! {
+            },
+            (None, false) => quote! {
                 ::vivibin::WriteDomainExt::write_fallback::<#ty>(#domain, #ctx, &self.#name)?;
-            }
+            },
+            (Some(inner_ty), true) => {
+                *vec_required = true;
+                quote! {
+                    ::vivibin::WriteSliceExt::write_slice::<#inner_ty>(#domain, #ctx, &self.#name)?;
+                }
+            },
+            (Some(inner_ty), false) => {
+                *vec_required = true;
+                quote! {
+                    ::vivibin::WriteSliceFallbackExt::write_slice_fallback::<#inner_ty>(#domain, #ctx, &self.#name)?;
+                }
+            },
+        }
+    }
+    
+    fn get_vec_inner_type(ty: &Type) -> Option<&Type> {
+        let Type::Path(TypePath { path, .. }) = ty else {
+            return None;
+        };
+        
+        let segments = &path.segments;
+        if segments.last().is_none_or(|segment| segment.ident != "Vec") {
+            return None;
+        }
+        
+        let args = &segments.last().unwrap().arguments;
+        let PathArguments::AngleBracketed(AngleBracketedGenericArguments { args, .. }) = args else {
+            return None;
+        };
+        
+        if args.len() != 1 {
+            return None;
+        }
+        
+        if let GenericArgument::Type(inner_ty) = &args[0] {
+            Some(inner_ty)
+        } else {
+            None
         }
     }
 }
@@ -124,13 +179,14 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let reader = Ident::new("reader", Span::call_site());
     
     let required_domain_impls: Vec<&Type> = structure.required_domain_impls();
+    let mut vec_required = false;
     
     let body = match &structure {
         Structure::Named(named_fields) => {
             let field_names = structure.field_names();
             
             let (var_names, statements) = named_fields.iter()
-                .map(|field| field.write_read_statement(&domain, &reader, &required_domain_impls))
+                .map(|field| field.write_read_statement(&domain, &reader, &mut vec_required, &required_domain_impls))
                 .unzip::<_, _, Vec<Ident>, Vec<TokenStream>>();
             
             quote! {
@@ -143,10 +199,11 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         Structure::Tuple(_) => todo!(),
     };
     
-    let constraint = if required_domain_impls.is_empty() {
-        quote! { ::vivibin::ReadDomain }
-    } else {
-        quote! { #(::vivibin::CanRead<#required_domain_impls>)+* }
+    let constraint = match (required_domain_impls.is_empty(), vec_required) {
+        (true, true) => quote! { ::vivibin::CanReadVec },
+        (true, false) => quote! { ::vivibin::ReadDomain },
+        (false, true) => quote! { ::vivibin::CanReadVec + #(::vivibin::CanRead<#required_domain_impls>)+* },
+        (false, false) => quote! { #(::vivibin::CanRead<#required_domain_impls>)+* },
     };
     
     quote! {
@@ -177,11 +234,12 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let reader = Ident::new("ctx", Span::call_site());
     
     let required_domain_impls: Vec<&Type> = structure.required_domain_impls();
+    let mut vec_required = false;
     
     let body = match &structure {
         Structure::Named(named_fields) => {
             let statements = named_fields.iter()
-                .map(|field| field.write_write_statement(&domain, &reader, &required_domain_impls))
+                .map(|field| field.write_write_statement(&domain, &reader, &mut vec_required, &required_domain_impls))
                 .collect::<Vec<_>>();
             
             quote! {
@@ -191,10 +249,11 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         Structure::Tuple(_) => todo!(),
     };
     
-    let constraint = if required_domain_impls.is_empty() {
-        quote! { ::vivibin::WriteDomain }
-    } else {
-        quote! { #(::vivibin::CanWrite<#required_domain_impls>)+* }
+    let constraint = match (required_domain_impls.is_empty(), vec_required) {
+        (true, true) => quote! { ::vivibin::CanWriteSlice },
+        (true, false) => quote! { ::vivibin::WriteDomain },
+        (false, true) => quote! { ::vivibin::CanWriteSlice + #(::vivibin::CanWrite<#required_domain_impls>)+* },
+        (false, false) => quote! { #(::vivibin::CanWrite<#required_domain_impls>)+* },
     };
     
     quote! {

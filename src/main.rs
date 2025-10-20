@@ -275,6 +275,7 @@ struct SimpleNpc {
     name: String,
     position: Vec3,
     is_visible: bool,
+    item_ids: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -285,7 +286,7 @@ struct Npc {
     // future proc macro?: #[args(BoolSize::U32)]
     is_visible: bool,
     
-    item_ids: Vec<u32>,
+    item_ids: std::vec::Vec<u32>,
 }
 
 impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
@@ -320,19 +321,19 @@ impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
 fn main() -> Result<()> {
     const BYTES: &[u8] = &[
         // name ptr
-        0x14, 0, 0, 0,
+        0x1c, 0, 0, 0,
         // position vec3
         0, 0, 0x80, 0x3f, 0, 0, 0, 0x40, 0, 0, 0, 0x3f,
         // isvisible
         1, 0, 0, 0,
         // item_ids
-        // 3, 0, 0, 0, 0x10, 0, 0, 0,
+        3, 0, 0, 0, 0x10, 0, 0, 0,
         // child
         // 0x10, 0, 0, 0,
         // name string
         0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0,
         // item_ids values
-        // 0x1, 0, 0, 0, 0x4, 0, 0, 0, 0x8, 0, 0, 0, 
+        0x1, 0, 0, 0, 0x4, 0, 0, 0, 0x8, 0, 0, 0, 
         
         // // child
         // // name ptr
