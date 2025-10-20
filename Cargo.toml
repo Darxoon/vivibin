@@ -19,5 +19,4 @@ resolver = "2"
 members = ["vivibin_derive"]
 
 [features]
-default = ["hashbrown"]
 hashbrown = ["dep:hashbrown"]

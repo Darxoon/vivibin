@@ -4,6 +4,8 @@ use anyhow::Result;
 
 #[cfg(feature = "hashbrown")]
 pub use hashbrown::HashMap;
+#[cfg(not(feature = "hashbrown"))]
+pub use std::collections::HashMap;
 
 pub struct SeekGuard<'a, R: Seek> {
     pub seek: &'a mut R,
