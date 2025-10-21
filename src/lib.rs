@@ -229,6 +229,37 @@ pub trait WriteDomainExt: WriteDomain {
 
 impl<T: WriteDomain> WriteDomainExt for T {}
 
+pub trait CanWriteBox: WriteDomain {
+    fn write_box_of<W: WriteCtx>(
+        &mut self,
+        ctx: &mut W,
+        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>
+    ) -> Result<()>;
+}
+
+pub trait WriteBoxFallbackExt: CanWriteBox {
+    fn write_box_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
+        self.write_box_of(ctx, |domain, ctx| {
+            domain.write_fallback::<T>(ctx, value)
+        })
+    }
+}
+
+impl<D: CanWriteBox> WriteBoxFallbackExt for D {}
+
+pub trait WriteBoxExt: CanWriteBox {
+    fn write_box<T: 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>
+    where
+        Self: CanWrite<T>
+    {
+        self.write_box_of(ctx, |domain, ctx| {
+            domain.write(ctx, value)
+        })
+    }
+}
+
+impl<D: CanWriteBox> WriteBoxExt for D {}
+
 pub trait CanWriteSlice: WriteDomain {
     fn write_slice_of<T: 'static, W: WriteCtx>(
         &mut self,
@@ -300,7 +331,12 @@ pub trait CanWriteWithArgs<T: 'static, A: Default>: CanWrite<T> {
 }
 
 pub trait Writable<D: WriteDomain>: Sized {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()>;
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()>;
+    
+    /// Override this with a write_box if this type should be boxed by default
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+        self.to_writer_unboxed(ctx, domain)
+    }
 }
 
 pub trait SimpleWritable<D: WriteDomain>: Sized {
@@ -311,7 +347,7 @@ pub trait SimpleWritable<D: WriteDomain>: Sized {
 macro_rules! impl_writable_from_simple {
     ($type:ty) => {
         impl<D: $crate::WriteDomain> $crate::Writable<D> for $type {
-            fn to_writer(&self, ctx: &mut impl $crate::WriteCtx, domain: &mut D) -> Result<()> {
+            fn to_writer_unboxed(&self, ctx: &mut impl $crate::WriteCtx, domain: &mut D) -> Result<()> {
                 self.to_writer_simple(ctx.cur_writer(), domain)
             }
         }

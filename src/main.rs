@@ -8,10 +8,7 @@ use std::io::{Cursor, Write};
 
 use anyhow::Result;
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteSlice,
-    EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt,
-    Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain, WriteDomainExt,
-    WriteSliceFallbackExt, Writer,
+    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteBox, CanWriteSlice, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt, Readable, Reader, SimpleWritable, Writable, WriteBoxFallbackExt, WriteCtx, WriteDomain, WriteDomainExt, WriteSliceFallbackExt, Writer
 };
 
 // typedef for more convenient access
@@ -217,6 +214,20 @@ impl<C: HeapCategory> WriteDomain for FormatCgfx<C> {
     }
 }
 
+impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
+    fn write_box_of<W: WriteCtx>(
+        &mut self,
+        ctx: &mut W,
+        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>
+    ) -> Result<()> {
+        let token = ctx.allocate_next_block(|ctx| {
+            write_content(self, ctx)
+        })?;
+        
+        ctx.write_token::<4>(token)
+    }
+}
+
 impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
     fn write_slice_of<T: 'static, W: WriteCtx>(
         &mut self,
@@ -289,7 +300,7 @@ impl<D: ReadDomain> Readable<D> for BoxedChild {
 }
 
 impl<D: WriteDomain> Writable<D> for BoxedChild {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
         domain.write_fallback(ctx, &self.id)?;
         domain.write_fallback(ctx, &self.visible)?;
         Ok(())
@@ -342,19 +353,17 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     }
 }
 
-impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+impl<D: CanWrite<str> + CanWriteSlice + CanWriteBox> Writable<D> for Npc {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
         // TODO: i don't know how this could be implemented with derive
         // TODO: i also don't know if there is any benefit of this over String
         domain.write(ctx, &self.name)?;
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
         domain.write_slice_fallback(ctx, &self.item_ids)?;
-        // TODO: add write box or something
-        let token = ctx.allocate_next_block(|ctx| {
-            self.child.to_writer(ctx, domain)
+        domain.write_box_of(ctx, |domain, ctx| {
+            self.child.to_writer_unboxed(ctx, domain)
         })?;
-        ctx.write_token::<4>(token)?;
         Ok(())
     }
 }
