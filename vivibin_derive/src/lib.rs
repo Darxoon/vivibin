@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
     parse_macro_input, AngleBracketedGenericArguments, Data, DataStruct, DeriveInput,
-    GenericArgument, Ident, PathArguments, Type, TypePath,
+    GenericArgument, Ident, Meta, PathArguments, Type, TypePath,
 };
 
 struct NamedField<'a> {
@@ -171,7 +171,7 @@ impl<'a> Structure<'a> {
     }
 }
 
-#[proc_macro_derive(Readable, attributes(require_domain, boxed))]
+#[proc_macro_derive(Readable, attributes(require_domain, boxed, extra_read_domain_deps))]
 pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -183,8 +183,11 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     
     let boxed_ident = Ident::new("boxed", Span::call_site());
     let require_domain_ident = Ident::new("require_domain", Span::call_site());
+    let extra_read_domain_deps_ident = Ident::new("extra_read_domain_deps", Span::call_site());
     
     let mut is_boxed = false;
+    let mut extra_read_domain_deps = None;
+    
     for attr in &input.attrs {
         let Some(ident) = attr.path().get_ident() else {
             continue;
@@ -192,6 +195,12 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         
         if *ident == boxed_ident {
             is_boxed = true;
+        } else if *ident == extra_read_domain_deps_ident {
+            let Meta::List(list) = &attr.meta else {
+                panic!("Expected arguments in #[extra_read_domain_deps(...)] attribute");
+            };
+            
+            extra_read_domain_deps = Some(&list.tokens);
         } else if *ident == require_domain_ident {
             panic!("#[require_domain] attribute cannot be put on a type definition!");
         }
@@ -230,6 +239,9 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         (false, false) => quote! { #(::vivibin::CanRead<#required_domain_impls>)+* },
     };
     
+    let extra_read_domain_deps = extra_read_domain_deps
+        .map_or_else(TokenStream::new, |value| quote!(+ #value));
+    
     let from_reader_def = if is_boxed {
         quote! {
             fn from_reader<R: ::vivibin::Reader>(reader: &mut R, domain: D) -> ::anyhow::Result<Self> {
@@ -243,7 +255,7 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     };
     
     quote! {
-        impl<D: #constraint> ::vivibin::Readable<D> for #name {
+        impl<D: #constraint #extra_read_domain_deps> ::vivibin::Readable<D> for #name {
             fn from_reader_unboxed<R: ::vivibin::Reader>(
                 reader: &mut R,
                 domain: D
@@ -256,7 +268,7 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     }.into()
 }
 
-#[proc_macro_derive(Writable, attributes(require_domain))]
+#[proc_macro_derive(Writable, attributes(require_domain, extra_write_domain_deps))]
 pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -265,6 +277,30 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let Data::Struct(data) = input.data else {
         panic!("Expected {name} to be a struct")
     };
+    
+    let boxed_ident = Ident::new("boxed", Span::call_site());
+    let require_domain_ident = Ident::new("require_domain", Span::call_site());
+    let extra_write_domain_deps_ident = Ident::new("extra_write_domain_deps", Span::call_site());
+    
+    let mut extra_write_domain_deps = None;
+    
+    for attr in &input.attrs {
+        let Some(ident) = attr.path().get_ident() else {
+            continue;
+        };
+        
+        if *ident == boxed_ident {
+            // TODO: boxed serialization
+        } else if *ident == extra_write_domain_deps_ident {
+            let Meta::List(list) = &attr.meta else {
+                panic!("Expected arguments in #[extra_write_domain_deps(...)] attribute");
+            };
+            
+            extra_write_domain_deps = Some(&list.tokens);
+        } else if *ident == require_domain_ident {
+            panic!("#[require_domain] attribute cannot be put on a type definition!");
+        }
+    }
     
     let structure = Structure::from_syn_struct(&data);
     
@@ -294,8 +330,11 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         (false, false) => quote! { #(::vivibin::CanWrite<#required_domain_impls>)+* },
     };
     
+    let extra_write_domain_deps = extra_write_domain_deps
+        .map_or_else(TokenStream::new, |value| quote!(+ #value));
+    
     quote! {
-        impl<D: #constraint> ::vivibin::Writable<D> for #name {
+        impl<D: #constraint #extra_write_domain_deps> ::vivibin::Writable<D> for #name {
             fn to_writer_unboxed(&self, ctx: &mut impl ::vivibin::WriteCtx, domain: &mut D) -> ::anyhow::Result<()> {
                 #body
                 Ok(())

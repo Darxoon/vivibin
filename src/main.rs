@@ -301,13 +301,14 @@ impl<D: CanWriteBox> Writable<D> for BoxedChild {
 
 #[derive(Debug, Readable, Writable)]
 #[allow(dead_code)]
+#[extra_write_domain_deps(CanWriteBox)]
 struct SimpleNpc {
     #[require_domain]
     name: String,
     position: Vec3,
     is_visible: bool,
     item_ids: Vec<u32>,
-    child: u32,
+    child: BoxedChild,
 }
 
 #[derive(Debug)]
@@ -388,7 +389,7 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
-    let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
+    let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {npc:?}");
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
