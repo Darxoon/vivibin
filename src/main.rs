@@ -97,7 +97,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
     
     pub fn read_vec<T, R: Reader>(reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Vec<T>> {
         let count = Self::read_u32(reader)?;
-        let content = Self::default().read_box(reader, |reader, _| {
+        let content = Self::default().read_box_nullable(reader, |reader| {
             let mut result = Vec::with_capacity(count as usize);
             
             for _ in 0..count {
@@ -154,11 +154,7 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
         Ok(result)
     }
     
-    fn read_std_box_of<T, R: Reader>(self, _reader: &mut R, _read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>> {
-        Ok(None)
-    }
-    
-    fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>> {
+    fn read_box_nullable<T, R: Reader>(self, reader: &mut R, read_content: impl FnOnce(&mut R) -> Result<T>) -> Result<Option<T>> {
         let ptr = Self::read_relative_ptr(reader)?;
         
         if ptr.value() == 0 {
@@ -168,7 +164,7 @@ impl<C: HeapCategory> ReadDomain for FormatCgfx<C> {
         scoped_reader_pos!(reader); // jump to pointer will be undone in destructor
         reader.set_position(ptr)?;
         
-        Ok(Some(parser(reader, self)?))
+        Ok(Some(read_content(reader)?))
     }
 }
 
@@ -268,6 +264,38 @@ struct Vec3 {
     pub z: f32,
 }
 
+#[derive(Debug, Clone)]
+struct BoxedChild {
+    id: u32,
+    visible: bool,
+}
+
+impl<D: ReadDomain> Readable<D> for BoxedChild {
+    fn from_reader_unboxed<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+        let id = domain.read_fallback::<u32>(reader)?;
+        let visible = domain.read_fallback::<bool>(reader)?;
+        
+        Ok(Self {
+            id,
+            visible,
+        })
+    }
+    
+    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+        domain.read_box::<BoxedChild, R>(reader, |reader| {
+            Self::from_reader_unboxed(reader, domain)
+        })
+    }
+}
+
+impl<D: WriteDomain> Writable<D> for BoxedChild {
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+        domain.write_fallback(ctx, &self.id)?;
+        domain.write_fallback(ctx, &self.visible)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Readable, Writable)]
 #[allow(dead_code)]
 struct SimpleNpc {
@@ -276,6 +304,7 @@ struct SimpleNpc {
     position: Vec3,
     is_visible: bool,
     item_ids: Vec<u32>,
+    child: u32,
 }
 
 #[derive(Debug)]
@@ -287,21 +316,28 @@ struct Npc {
     is_visible: bool,
     
     item_ids: std::vec::Vec<u32>,
+    
+    child: BoxedChild,
 }
 
 impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
-    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+    fn from_reader_unboxed<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
         let name = domain.read(reader)?;
         let position = domain.read_fallback::<Vec3>(reader)?;
         let is_visible = domain.read_fallback::<bool>(reader)?;
-        // TODO: implement this into derive macros
         let item_ids: Vec<u32> = domain.read_std_vec_fallback::<u32, R>(reader)?;
+        // explicitly boxed (TODO: implement this into derive macro)
+        // let child = domain.read_box::<BoxedChild, R>(reader, |reader| {
+        //     BoxedChild::from_reader_unboxed(reader, domain)
+        // })?;
+        let child = domain.read_fallback::<BoxedChild>(reader)?;
         
         Ok(Npc {
             name,
             position,
             is_visible,
             item_ids,
+            child,
         })
     }
 }
@@ -314,6 +350,11 @@ impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
         domain.write_slice_fallback(ctx, &self.item_ids)?;
+        // TODO: add write box or something
+        let token = ctx.allocate_next_block(|ctx| {
+            self.child.to_writer(ctx, domain)
+        })?;
+        ctx.write_token::<4>(token)?;
         Ok(())
     }
 }
@@ -321,35 +362,30 @@ impl<D: CanWrite<str> + CanWriteSlice> Writable<D> for Npc {
 fn main() -> Result<()> {
     const BYTES: &[u8] = &[
         // name ptr
-        0x1c, 0, 0, 0,
+        0x20, 0, 0, 0,
         // position vec3
         0, 0, 0x80, 0x3f, 0, 0, 0, 0x40, 0, 0, 0, 0x3f,
         // isvisible
         1, 0, 0, 0,
         // item_ids
-        3, 0, 0, 0, 0x10, 0, 0, 0,
-        // child
-        // 0x10, 0, 0, 0,
+        3, 0, 0, 0, 0x14, 0, 0, 0,
+        // child_ptr
+        0x1c, 0, 0, 0,
+        
         // name string
         0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0,
         // item_ids values
         0x1, 0, 0, 0, 0x4, 0, 0, 0, 0x8, 0, 0, 0, 
         
-        // // child
-        // // name ptr
-        // 0x18, 0, 0, 0,
-        // // position vec3
-        // 0, 0, 0, 0x40, 0, 0, 0x80, 0x3f, 0, 0, 0, 0x3f,
-        // // isvisible
-        // 0, 0, 0, 0,
-        // // child
-        // 0, 0, 0, 0,
-        // // name string
-        // 0x48, 0x69, 0x69, 0x69, 0x69, 0x69, 0, 0,
+        // child
+        // id
+        0x18, 0, 0, 0,
+        // visible
+        1, 0, 0, 0,
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
-    let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
+    let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {npc:?}");
     
     let mut ctx = FormatCgfx::<()>::new_ctx();

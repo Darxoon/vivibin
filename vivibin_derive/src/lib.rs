@@ -208,7 +208,7 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     
     quote! {
         impl<D: #constraint> ::vivibin::Readable<D> for #name {
-            fn from_reader<R: ::vivibin::Reader>(
+            fn from_reader_unboxed<R: ::vivibin::Reader>(
                 reader: &mut R,
                 domain: D
             ) -> ::anyhow::Result<Self> {

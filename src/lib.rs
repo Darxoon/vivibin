@@ -10,7 +10,7 @@ use core::{
 };
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use array_init::try_array_init;
 
 use crate::util::HashMap;
@@ -108,12 +108,8 @@ pub trait ReadDomain: Copy + EndianSpecific {
     
     fn read_unk<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
     
-    // "optional" to implement, return Ok(None) if not
-    // TODO: implement more of these/make this more generic for all container types
-    fn read_std_box_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Option<Box<T>>>;
-    
-    // TODO: make these optional to implement? i. e. split them into another Trait
-    fn read_box<T, R: Reader>(self, reader: &mut R, parser: impl FnOnce(&mut R, Self) -> Result<T>) -> Result<Option<T>>;
+    // TODO: make this optional to implement? i. e. split them into another Trait
+    fn read_box_nullable<T, R: Reader>(self, reader: &mut R, read_content: impl FnOnce(&mut R) -> Result<T>) -> Result<Option<T>>;
 }
 
 pub trait ReadDomainExt: ReadDomain {
@@ -124,7 +120,18 @@ pub trait ReadDomainExt: ReadDomain {
         })
     }
     
-    fn read_std_box_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Option<Box<T>>> {
+    fn read_box<T, R: Reader>(self, reader: &mut R, read_content: impl FnOnce(&mut R) -> Result<T>) -> Result<T> {
+        let offset = reader.position()?;
+        let value = self.read_box_nullable(reader, read_content)?
+            .ok_or_else(|| anyhow!("Expected value, got null (at offset 0x{offset:x})"))?;
+        Ok(value)
+    }
+    
+    fn read_std_box_of<T, R: Reader>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<Box<T>> {
+        self.read_box(reader, read_content).map(Box::new)
+    }
+    
+    fn read_std_box_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Box<T>> {
         self.read_std_box_of(reader, |reader| self.read_fallback::<T>(reader))
     }
     
@@ -168,7 +175,12 @@ pub trait CanRead<T: 'static>: ReadDomain {
 }
 
 pub trait Readable<D: ReadDomain>: Sized {
-    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self>;
+    fn from_reader_unboxed<R: Reader>(reader: &mut R, domain: D) -> Result<Self>;
+    
+    /// Override this with a read_box if this type should be boxed by default
+    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+        Self::from_reader_unboxed(reader, domain)
+    }
 }
 
 pub trait ReadableWithArgs<T>: Sized {
@@ -181,7 +193,7 @@ pub trait AnyReadable: Sized {
 }
 
 impl<A: AnyReadable, D: ReadDomain> Readable<D> for A {
-    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
+    fn from_reader_unboxed<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
         A::from_reader_any(reader, domain)
     }
 }
