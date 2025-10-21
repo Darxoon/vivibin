@@ -8,7 +8,10 @@ use std::io::{Cursor, Write};
 
 use anyhow::Result;
 use vivibin::{
-    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteBox, CanWriteSlice, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt, ReadVecFallbackExt, Readable, Reader, SimpleWritable, Writable, WriteBoxFallbackExt, WriteCtx, WriteDomain, WriteDomainExt, WriteSliceFallbackExt, Writer
+    pointers::PointerZero32, scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteBox,
+    CanWriteSlice, EndianSpecific, Endianness, HeapCategory, ReadDomain, ReadDomainExt,
+    ReadVecFallbackExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain,
+    WriteDomainExt, WriteSliceFallbackExt, Writer,
 };
 
 // typedef for more convenient access
@@ -275,35 +278,24 @@ struct Vec3 {
     pub z: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Readable)]
+#[boxed]
 struct BoxedChild {
     id: u32,
     visible: bool,
 }
 
-impl<D: ReadDomain> Readable<D> for BoxedChild {
-    fn from_reader_unboxed<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
-        let id = domain.read_fallback::<u32>(reader)?;
-        let visible = domain.read_fallback::<bool>(reader)?;
-        
-        Ok(Self {
-            id,
-            visible,
-        })
-    }
-    
-    fn from_reader<R: Reader>(reader: &mut R, domain: D) -> Result<Self> {
-        domain.read_box::<BoxedChild, R>(reader, |reader| {
-            Self::from_reader_unboxed(reader, domain)
-        })
-    }
-}
-
-impl<D: WriteDomain> Writable<D> for BoxedChild {
+impl<D: CanWriteBox> Writable<D> for BoxedChild {
     fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
         domain.write_fallback(ctx, &self.id)?;
         domain.write_fallback(ctx, &self.visible)?;
         Ok(())
+    }
+    
+    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+        domain.write_box_of(ctx, |domain, ctx| {
+            self.to_writer_unboxed(ctx, domain)
+        })
     }
 }
 
@@ -361,9 +353,11 @@ impl<D: CanWrite<str> + CanWriteSlice + CanWriteBox> Writable<D> for Npc {
         domain.write_fallback::<Vec3>(ctx, &self.position)?;
         domain.write_fallback::<bool>(ctx, &self.is_visible)?;
         domain.write_slice_fallback(ctx, &self.item_ids)?;
-        domain.write_box_of(ctx, |domain, ctx| {
-            self.child.to_writer_unboxed(ctx, domain)
-        })?;
+        // explicitly boxed
+        // domain.write_box_of(ctx, |domain, ctx| {
+        //     self.child.to_writer_unboxed(ctx, domain)
+        // })?;
+        domain.write_fallback(ctx, &self.child)?;
         Ok(())
     }
 }

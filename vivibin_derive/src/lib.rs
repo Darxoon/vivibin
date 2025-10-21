@@ -139,15 +139,23 @@ impl<'a> Structure<'a> {
     fn from_syn_struct(data: &'a DataStruct) -> Self {
         let mut fields = Vec::new();
         
+        let boxed_ident = Ident::new("boxed", Span::call_site());
+        let require_domain_ident = Ident::new("require_domain", Span::call_site());
+        
         for field in &data.fields {
             let field_name = field.ident.as_ref().expect("Expected named field");
             
-            let require_domain_ident = Ident::new("require_domain", Span::call_site());
             
             let mut explicit_require_domain = false;
             for attr in &field.attrs {
-                if attr.path().get_ident().is_some_and(|ident| *ident == require_domain_ident) {
+                let Some(ident) = attr.path().get_ident() else {
+                    continue;
+                };
+                
+                if *ident == require_domain_ident {
                     explicit_require_domain = true;
+                } else if *ident == boxed_ident {
+                    panic!("#[boxed] attribute on a field is not supported yet!");
                 }
             }
             
@@ -163,7 +171,7 @@ impl<'a> Structure<'a> {
     }
 }
 
-#[proc_macro_derive(Readable, attributes(require_domain))]
+#[proc_macro_derive(Readable, attributes(require_domain, boxed))]
 pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -172,6 +180,22 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let Data::Struct(data) = input.data else {
         panic!("Expected {name} to be a struct")
     };
+    
+    let boxed_ident = Ident::new("boxed", Span::call_site());
+    let require_domain_ident = Ident::new("require_domain", Span::call_site());
+    
+    let mut is_boxed = false;
+    for attr in &input.attrs {
+        let Some(ident) = attr.path().get_ident() else {
+            continue;
+        };
+        
+        if *ident == boxed_ident {
+            is_boxed = true;
+        } else if *ident == require_domain_ident {
+            panic!("#[require_domain] attribute cannot be put on a type definition!");
+        }
+    }
     
     let structure = Structure::from_syn_struct(&data);
     
@@ -206,6 +230,18 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         (false, false) => quote! { #(::vivibin::CanRead<#required_domain_impls>)+* },
     };
     
+    let from_reader_def = if is_boxed {
+        quote! {
+            fn from_reader<R: ::vivibin::Reader>(reader: &mut R, domain: D) -> ::anyhow::Result<Self> {
+                ::vivibin::ReadDomainExt::read_box(domain, reader, |reader| {
+                    Self::from_reader_unboxed(reader, domain)
+                })
+            }
+        }
+    } else {
+        quote! {}
+    };
+    
     quote! {
         impl<D: #constraint> ::vivibin::Readable<D> for #name {
             fn from_reader_unboxed<R: ::vivibin::Reader>(
@@ -214,6 +250,8 @@ pub fn derive_readable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             ) -> ::anyhow::Result<Self> {
                 #body
             }
+            
+            #from_reader_def
         }
     }.into()
 }
