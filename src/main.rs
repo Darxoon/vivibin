@@ -86,7 +86,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
     }
     
     pub fn write_str(ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
-        let token = ctx.allocate_next_block(move |ctx| {
+        let token = ctx.allocate_next_block(None, move |ctx| {
             ctx.write_c_str(value)?;
             Ok(())
         })?;
@@ -223,7 +223,7 @@ impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
         ctx: &mut W,
         write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>
     ) -> Result<()> {
-        let token = ctx.allocate_next_block(|ctx| {
+        let token = ctx.allocate_next_block(None, |ctx| {
             write_content(self, ctx)
         })?;
         
@@ -239,7 +239,7 @@ impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
         write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
     ) -> Result<()> {
         (values.len() as u32).to_writer(ctx, self)?;
-        let item_ids_token = ctx.allocate_next_block(|ctx| {
+        let item_ids_token = ctx.allocate_next_block(None, |ctx| {
             for value in values {
                 write_content(self, ctx, value)?;
             }

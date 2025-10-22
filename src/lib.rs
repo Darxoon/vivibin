@@ -356,11 +356,11 @@ macro_rules! impl_writable_from_simple {
 
 // boxed serialization stuff
 pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
-    type Category: Eq + Hash + Default;
+    type Category: Eq + Hash + Default + Clone;
     type Writer: Writer;
     
-    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
-    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
     
     fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer>;
@@ -382,6 +382,13 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
         WriteCtxImpl {
             default_heap: WriteHeap::new(),
             heaps: HashMap::new(),
+        }
+    }
+    
+    fn heap_or_default_mut(&mut self, category: Option<D::Cat>) -> &mut WriteHeap<WriteCtxWriter> {
+        match category {
+            Some(cat) => self.heap_mut(cat),
+            None => &mut self.default_heap,
         }
     }
     
@@ -440,23 +447,27 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     type Category = T::Cat;
     type Writer = WriteCtxWriter;
 
-    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.seek_to_new_block(0)?;
+    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let heap = self.heap_or_default_mut(category.clone());
+        let prev_current_block = heap.current_block;
+        let new_block_token = heap.seek_to_new_block(0)?;
         
         content_callback(self)?;
         
-        self.default_heap.current_block = prev_current_block;
+        let heap = self.heap_or_default_mut(category);
+        heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.seek_to_new_block(alignment)?;
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let heap = self.heap_or_default_mut(category.clone());
+        let prev_current_block = heap.current_block;
+        let new_block_token = heap.seek_to_new_block(alignment)?;
         
         content_callback(self)?;
         
-        self.default_heap.current_block = prev_current_block;
+        let heap = self.heap_or_default_mut(category);
+        heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
@@ -529,11 +540,17 @@ where
     pub fn new(ctx: &'a mut C, default_category: T::Cat) -> Self {
         let default_heap = ctx.remove_heap(&default_category);
         
-        // SAFETY: 
         Self {
             default_category,
             default_heap,
             ctx,
+        }
+    }
+    
+    fn heap_or_default_mut(&mut self, category: Option<T::Cat>) -> &mut WriteHeap<WriteCtxWriter> {
+        match category {
+            Some(cat) => self.heap_mut(cat),
+            None => &mut self.default_heap,
         }
     }
 }
@@ -546,23 +563,27 @@ where
     type Category = T::Cat;
     type Writer = WriteCtxWriter;
 
-    fn allocate_next_block(&mut self, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.seek_to_new_block(0)?;
+    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let heap = self.heap_or_default_mut(category.clone());
+        let prev_current_block = heap.current_block;
+        let new_block_token = heap.seek_to_new_block(0)?;
         
         content_callback(self)?;
         
-        self.default_heap.current_block = prev_current_block;
+        let heap = self.heap_or_default_mut(category);
+        heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let prev_current_block = self.default_heap.current_block;
-        let new_block_token = self.default_heap.seek_to_new_block(alignment)?;
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+        let heap = self.heap_or_default_mut(category.clone());
+        let prev_current_block = heap.current_block;
+        let new_block_token = heap.seek_to_new_block(alignment)?;
         
         content_callback(self)?;
         
-        self.default_heap.current_block = prev_current_block;
+        let heap = self.heap_or_default_mut(category);
+        heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
