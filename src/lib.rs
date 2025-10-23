@@ -215,11 +215,11 @@ pub trait WriteDomain: Sized + EndianSpecific {
 }
 
 pub trait WriteDomainExt: WriteDomain {
-    fn new_ctx() -> WriteCtxImpl<Self> {
+    fn new_ctx() -> WriteCtxImpl<Self::Cat> {
         WriteCtxImpl::new()
     }
     
-    fn write_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
+    fn write_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()> {
         if self.write_unk::<T>(ctx, value)?.is_none() {
             value.to_writer(ctx, self)?;
         }
@@ -233,12 +233,12 @@ pub trait CanWriteBox: WriteDomain {
     fn write_box_of<W: WriteCtx>(
         &mut self,
         ctx: &mut W,
-        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>
+        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>,
     ) -> Result<()>;
 }
 
 pub trait WriteBoxFallbackExt: CanWriteBox {
-    fn write_box_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()> {
+    fn write_box_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()> {
         self.write_box_of(ctx, |domain, ctx| {
             domain.write_fallback::<T>(ctx, value)
         })
@@ -248,7 +248,7 @@ pub trait WriteBoxFallbackExt: CanWriteBox {
 impl<D: CanWriteBox> WriteBoxFallbackExt for D {}
 
 pub trait WriteBoxExt: CanWriteBox {
-    fn write_box<T: 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>
+    fn write_box<T: 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()>
     where
         Self: CanWrite<T>
     {
@@ -261,7 +261,7 @@ pub trait WriteBoxExt: CanWriteBox {
 impl<D: CanWriteBox> WriteBoxExt for D {}
 
 pub trait CanWriteSlice: WriteDomain {
-    fn write_slice_of<T: 'static, W: WriteCtx>(
+    fn write_slice_of<T: 'static, W: WriteCtx<Cat = Self::Cat>>(
         &mut self,
         ctx: &mut W,
         values: &[T],
@@ -270,7 +270,7 @@ pub trait CanWriteSlice: WriteDomain {
 }
 
 pub trait WriteSliceFallbackExt: CanWriteSlice {
-    fn write_slice_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()> {
+    fn write_slice_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T]) -> Result<()> {
         self.write_slice_of(ctx, values, |domain, ctx, value| {
             domain.write_fallback::<T>(ctx, value)
         })
@@ -280,7 +280,7 @@ pub trait WriteSliceFallbackExt: CanWriteSlice {
 impl<D: CanWriteSlice> WriteSliceFallbackExt for D {}
 
 pub trait WriteSliceExt: CanWriteSlice {
-    fn write_slice<T: 'static>(&mut self, ctx: &mut impl WriteCtx, values: &[T]) -> Result<()>
+    fn write_slice<T: 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T]) -> Result<()>
     where
         Self: CanWrite<T>
     {
@@ -293,7 +293,7 @@ pub trait WriteSliceExt: CanWriteSlice {
 impl<D: CanWriteSlice> WriteSliceExt for D {}
 
 pub trait CanWriteSliceWithArgs<T: 'static, A>: WriteDomain {
-    fn write_slice_args_of<W: WriteCtx>(
+    fn write_slice_args_of<W: WriteCtx<Cat = Self::Cat>>(
         &mut self,
         ctx: &mut W,
         values: &[T],
@@ -303,7 +303,7 @@ pub trait CanWriteSliceWithArgs<T: 'static, A>: WriteDomain {
 }
 
 pub trait WriteSliceWithArgsFallbackExt<T: Writable<Self> + 'static, A>: CanWriteSliceWithArgs<T, A> {
-    fn write_slice_args_fallback(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
+    fn write_slice_args_fallback(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
             domain.write_fallback::<T>(ctx, value)
         })
@@ -313,7 +313,7 @@ pub trait WriteSliceWithArgsFallbackExt<T: Writable<Self> + 'static, A>: CanWrit
 impl<T: Writable<Self> + 'static, A, D: CanWriteSliceWithArgs<T, A>> WriteSliceWithArgsFallbackExt<T, A> for D {}
 
 pub trait WriteSliceWithArgsExt<T: 'static, A>: CanWriteSliceWithArgs<T, A> + CanWrite<T> {
-    fn write_slice_args(&mut self, ctx: &mut impl WriteCtx, values: &[T], args: A) -> Result<()> {
+    fn write_slice_args(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
             domain.write(ctx, value)
         })
@@ -323,18 +323,18 @@ pub trait WriteSliceWithArgsExt<T: 'static, A>: CanWriteSliceWithArgs<T, A> + Ca
 impl<T: 'static, A, D: CanWrite<T> + CanWriteSliceWithArgs<T, A>> WriteSliceWithArgsExt<T, A> for D {}
 
 pub trait CanWrite<T: 'static + ?Sized>: WriteDomain  {
-    fn write(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<()>;
+    fn write(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()>;
 }
 
 pub trait CanWriteWithArgs<T: 'static, A: Default>: CanWrite<T> {
-    fn write_args(&mut self, ctx: &mut impl WriteCtx, value: &T, args: A) -> Result<()>;
+    fn write_args(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T, args: A) -> Result<()>;
 }
 
 pub trait Writable<D: WriteDomain>: Sized {
-    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()>;
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()>;
     
     /// Override this with a write_box if this type should be boxed by default
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+    fn to_writer(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
         self.to_writer_unboxed(ctx, domain)
     }
 }
@@ -356,28 +356,36 @@ macro_rules! impl_writable_from_simple {
 
 // boxed serialization stuff
 pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
-    type Category: Eq + Hash + Default + Clone;
+    // TODO: should this even still be an associated type or make it into a type parameter?
+    type Cat: Eq + Hash + Default + Clone;
     type Writer: Writer;
+    type InnerCtx<'a>: WriteCtx<Cat = Self::Cat, Writer = Self::Writer> where Self::Cat: 'a;
     
-    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    fn allocate_next_block<'a>(
+        &'a mut self,
+        category: Option<Self::Cat>,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
+    ) -> Result<HeapToken>
+    where
+        Self::Cat: 'a;
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
     
-    fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>>;
-    fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer>;
+    fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>>;
+    fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer>;
     
     // useful for child ctx's
-    fn set_heap(&mut self, category: Self::Category, heap: WriteHeap<Self::Writer>);
-    fn remove_heap(&mut self, category: &Self::Category) -> WriteHeap<Self::Writer>;
+    fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>);
+    fn remove_heap(&mut self, category: &Self::Cat) -> WriteHeap<Self::Writer>;
 }
 
 pub type WriteCtxWriter = Cursor<Vec<u8>>;
 
-pub struct WriteCtxImpl<T: WriteDomain> {
+pub struct WriteCtxImpl<C: HeapCategory> {
     default_heap: WriteHeap<WriteCtxWriter>,
-    heaps: HashMap<T::Cat, WriteHeap<WriteCtxWriter>>,
+    heaps: HashMap<C, WriteHeap<WriteCtxWriter>>,
 }
 
-impl<D: WriteDomain> WriteCtxImpl<D> {
+impl<C: HeapCategory> WriteCtxImpl<C> {
     pub fn new() -> Self {
         WriteCtxImpl {
             default_heap: WriteHeap::new(),
@@ -385,81 +393,60 @@ impl<D: WriteDomain> WriteCtxImpl<D> {
         }
     }
     
-    fn heap_or_default_mut(&mut self, category: Option<D::Cat>) -> &mut WriteHeap<WriteCtxWriter> {
+    fn heap_or_default_mut(&mut self, category: Option<C>) -> &mut WriteHeap<WriteCtxWriter> {
         match category {
             Some(cat) => self.heap_mut(cat),
             None => &mut self.default_heap,
         }
     }
     
-    pub fn to_buffer(mut self, domain: &mut D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
+    pub fn to_buffer<D: WriteDomain<Cat = C>>(mut self, domain: &mut D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
-        self.heaps.insert(D::Cat::default(), self.default_heap);
+        self.heaps.insert(C::default(), self.default_heap);
         
         let mut heaps = self.heaps.iter().collect::<Vec<_>>();
         heaps.sort_by_key(|(category, _)| *category);
         
-        let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
-        
         for (_, heap) in heaps {
-            all_relocations.clear();
-            
-            for (block_id, block) in heap.blocks.iter().enumerate() {
-                let block_start = writer.position() as usize;
-                if let Some(block_offsets) = block_offsets.as_mut() {
-                    block_offsets.push(block_start);
-                }
-                writer.write_all(block.writer.get_ref())?;
-                
-                // apply previous relocations
-                #[allow(clippy::let_with_type_underscore)]
-                let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)| {
-                    token.block_id as usize == block_id
-                });
-                
-                for (offset, token) in all_relocations_to_current {
-                    let writer_pos = writer.position();
-                    writer.set_position(offset as u64);
-                    
-                    domain.apply_reference(&mut writer, block_start + token.offset as usize)?;
-                    
-                    writer.set_position(writer_pos);
-                }
-                
-                // push new relocations
-                all_relocations.extend(block.relocations.iter().copied()
-                    .map(|(local_offset, token)| (block_start + local_offset, token)));
-            }
+            heap.to_writer(&mut writer, domain, block_offsets.as_deref_mut())?;
         }
         
         Ok(writer.into_inner())
     }
 }
 
-impl<T: WriteDomain> Default for WriteCtxImpl<T> {
+impl<C: HeapCategory> Default for WriteCtxImpl<C> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
-    type Category = T::Cat;
+impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
+    type Cat = C;
     type Writer = WriteCtxWriter;
+    type InnerCtx<'a> = InnerWriteCtx<'a, C, WriteCtxImpl<C>> where C: 'a;
 
-    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let heap = self.heap_or_default_mut(category.clone());
-        let prev_current_block = heap.current_block;
-        let new_block_token = heap.seek_to_new_block(0)?;
+    fn allocate_next_block<'a>(
+        &'a mut self,
+        category: Option<Self::Cat>,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
+    ) -> Result<HeapToken>
+    where
+        C: 'a,
+    {
+        let mut ctx: InnerWriteCtx<'_, C, WriteCtxImpl<C>> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
-        content_callback(self)?;
+        let prev_current_block = ctx.default_heap.current_block;
+        let new_block_token = ctx.default_heap.seek_to_new_block(0)?;
         
-        let heap = self.heap_or_default_mut(category);
-        heap.current_block = prev_current_block;
+        content_callback(&mut ctx)?;
+        
+        ctx.default_heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let heap = self.heap_or_default_mut(category.clone());
         let prev_current_block = heap.current_block;
         let new_block_token = heap.seek_to_new_block(alignment)?;
@@ -472,16 +459,16 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     }
     
     // I'm honestly not sure anymore where these are useful
-    fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>> {
-        if *category == T::Cat::default() {
+    fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>> {
+        if *category == C::default() {
             Some(&self.default_heap)
         } else {
             self.heaps.get(category)
         }
     }
     
-    fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer> {
-        if category == T::Cat::default() {
+    fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer> {
+        if category == C::default() {
             &mut self.default_heap
         } else {
             // wow HashMap::entry is such a cool api actually
@@ -489,16 +476,16 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
         }
     }
     
-    fn set_heap(&mut self, category: Self::Category, heap: WriteHeap<Self::Writer>) {
-        if category == T::Cat::default() {
+    fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>) {
+        if category == C::default() {
             self.default_heap = heap;
         } else {
             self.heaps.insert(category, heap);
         }
     }
     
-    fn remove_heap(&mut self, category: &Self::Category) -> WriteHeap<Self::Writer> {
-        if *category == T::Cat::default() {
+    fn remove_heap(&mut self, category: &Self::Cat) -> WriteHeap<Self::Writer> {
+        if *category == C::default() {
             mem::take(&mut self.default_heap)
         } else {
             self.heaps
@@ -508,7 +495,7 @@ impl<T: WriteDomain> WriteCtx for WriteCtxImpl<T> {
     }
 }
 
-impl<T: WriteDomain> Deref for WriteCtxImpl<T> {
+impl<C: HeapCategory> Deref for WriteCtxImpl<C> {
     type Target = WriteHeap<WriteCtxWriter>;
 
     fn deref(&self) -> &Self::Target {
@@ -516,28 +503,28 @@ impl<T: WriteDomain> Deref for WriteCtxImpl<T> {
     }
 }
 
-impl<T: WriteDomain> DerefMut for WriteCtxImpl<T> {
+impl<C: HeapCategory> DerefMut for WriteCtxImpl<C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.default_heap
     }
 }
 
-pub struct InnerWriteCtx<'a, T, C>
+pub struct InnerWriteCtx<'a, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
-    default_category: T::Cat,
+    default_category: C,
     default_heap: WriteHeap<WriteCtxWriter>,
-    ctx: &'a mut C,
+    ctx: &'a mut W,
 }
 
-impl<'a, T, C> InnerWriteCtx<'a, T, C>
+impl<'a, C, W> InnerWriteCtx<'a, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
-    pub fn new(ctx: &'a mut C, default_category: T::Cat) -> Self {
+    pub fn new(ctx: &'a mut W, default_category: C) -> Self {
         let default_heap = ctx.remove_heap(&default_category);
         
         Self {
@@ -547,7 +534,7 @@ where
         }
     }
     
-    fn heap_or_default_mut(&mut self, category: Option<T::Cat>) -> &mut WriteHeap<WriteCtxWriter> {
+    fn heap_or_default_mut(&mut self, category: Option<C>) -> &mut WriteHeap<WriteCtxWriter> {
         match category {
             Some(cat) => self.heap_mut(cat),
             None => &mut self.default_heap,
@@ -555,15 +542,19 @@ where
     }
 }
 
-impl<T, C> WriteCtx for InnerWriteCtx<'_, T, C>
+impl<C, W> WriteCtx for InnerWriteCtx<'_, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
-    type Category = T::Cat;
+    type Cat = C;
     type Writer = WriteCtxWriter;
+    type InnerCtx<'a> = Self where C: 'a;
 
-    fn allocate_next_block(&mut self, category: Option<Self::Category>, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+    fn allocate_next_block<'a>(
+        &mut self,
+        category: Option<Self::Cat>, content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
+    ) -> Result<HeapToken> where C: 'a {
         let heap = self.heap_or_default_mut(category.clone());
         let prev_current_block = heap.current_block;
         let new_block_token = heap.seek_to_new_block(0)?;
@@ -575,7 +566,7 @@ where
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Category>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
         let heap = self.heap_or_default_mut(category.clone());
         let prev_current_block = heap.current_block;
         let new_block_token = heap.seek_to_new_block(alignment)?;
@@ -587,7 +578,7 @@ where
         Ok(new_block_token)
     }
     
-    fn heap(&self, category: &Self::Category) -> Option<&WriteHeap<Self::Writer>> {
+    fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>> {
         if *category == self.default_category {
             Some(&self.default_heap)
         } else {
@@ -595,7 +586,7 @@ where
         }
     }
     
-    fn heap_mut(&mut self, category: Self::Category) -> &mut WriteHeap<Self::Writer> {
+    fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer> {
         if category == self.default_category {
             &mut self.default_heap
         } else {
@@ -603,7 +594,7 @@ where
         }
     }
 
-    fn set_heap(&mut self, category: Self::Category, heap: WriteHeap<Self::Writer>) {
+    fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>) {
         if category == self.default_category {
             self.default_heap = heap;
         } else {
@@ -611,7 +602,7 @@ where
         }
     }
 
-    fn remove_heap(&mut self, category: &Self::Category) -> WriteHeap<Self::Writer> {
+    fn remove_heap(&mut self, category: &Self::Cat) -> WriteHeap<Self::Writer> {
         if *category == self.default_category {
             mem::take(&mut self.default_heap)
         } else {
@@ -620,10 +611,10 @@ where
     }
 }
 
-impl<T, C> Deref for InnerWriteCtx<'_, T, C>
+impl<C, W> Deref for InnerWriteCtx<'_, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
     type Target = WriteHeap<WriteCtxWriter>;
 
@@ -632,20 +623,20 @@ where
     }
 }
 
-impl<T, C> DerefMut for InnerWriteCtx<'_, T, C>
+impl<C, W> DerefMut for InnerWriteCtx<'_, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.default_heap
     }
 }
 
-impl<T, C> Drop for InnerWriteCtx<'_, T, C>
+impl<C, W> Drop for InnerWriteCtx<'_, C, W>
 where
-    T: WriteDomain,
-    C: WriteCtx<Writer = WriteCtxWriter, Category = T::Cat>,
+    C: HeapCategory,
+    W: WriteCtx<Writer = WriteCtxWriter, Cat = C>,
 {
     fn drop(&mut self) {
         let default_category = mem::take(&mut self.default_category);
@@ -757,6 +748,46 @@ impl<W: Writer> WriteHeap<W> {
         }
         
         self.heap_token_at_current_pos()
+    }
+}
+
+impl WriteHeap<WriteCtxWriter> {
+    pub fn to_buffer(&self, domain: &mut impl WriteDomain, block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
+        let mut writer = WriteCtxWriter::default();
+        self.to_writer(&mut writer, domain, block_offsets)?;
+        Ok(writer.into_inner())
+    }
+    
+    pub fn to_writer(&self, writer: &mut WriteCtxWriter, domain: &mut impl WriteDomain, mut block_offsets: Option<&mut Vec<usize>>) -> Result<()> {
+        let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
+        
+        for (block_id, block) in self.blocks.iter().enumerate() {
+            let block_start = Cursor::position(writer) as usize;
+            if let Some(block_offsets) = block_offsets.as_mut() {
+                block_offsets.push(block_start);
+            }
+            writer.write_all(block.writer.get_ref())?;
+            
+            // apply previous relocations
+            #[allow(clippy::let_with_type_underscore)]
+            let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)| {
+                token.block_id as usize == block_id
+            });
+            
+            for (offset, token) in all_relocations_to_current {
+                let writer_pos = Cursor::position(writer);
+                writer.set_position(offset as u64);
+                
+                domain.apply_reference(writer, block_start + token.offset as usize)?;
+                
+                writer.set_position(writer_pos);
+            }
+            
+            // push new relocations
+            all_relocations.extend(block.relocations.iter().copied()
+                .map(|(local_offset, token)| (block_start + local_offset, token)));
+        }
+        Ok(())
     }
 }
 

@@ -335,7 +335,7 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     
     quote! {
         impl<D: #constraint #extra_write_domain_deps> ::vivibin::Writable<D> for #name {
-            fn to_writer_unboxed(&self, ctx: &mut impl ::vivibin::WriteCtx, domain: &mut D) -> ::anyhow::Result<()> {
+            fn to_writer_unboxed(&self, ctx: &mut impl ::vivibin::WriteCtx<Cat = D::Cat>, domain: &mut D) -> ::anyhow::Result<()> {
                 #body
                 Ok(())
             }
