@@ -233,7 +233,7 @@ pub trait CanWriteBox: WriteDomain {
     fn write_box_of<W: WriteCtx>(
         &mut self,
         ctx: &mut W,
-        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>,
+        write_content: impl FnOnce(&mut Self, &mut W::InnerCtx<'_>) -> Result<()>,
     ) -> Result<()>;
 }
 
@@ -265,7 +265,7 @@ pub trait CanWriteSlice: WriteDomain {
         &mut self,
         ctx: &mut W,
         values: &[T],
-        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+        write_content: impl Fn(&mut Self, &mut W::InnerCtx<'_>, &T) -> Result<()>,
     ) -> Result<()>;
 }
 
@@ -298,7 +298,7 @@ pub trait CanWriteSliceWithArgs<T: 'static, A>: WriteDomain {
         ctx: &mut W,
         values: &[T],
         args: A,
-        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+        write_content: impl Fn(&mut Self, &mut W::InnerCtx<'_>, &T) -> Result<()>,
     ) -> Result<()>;
 }
 
@@ -368,7 +368,15 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     ) -> Result<HeapToken>
     where
         Self::Cat: 'a;
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken>;
+    
+    fn allocate_next_block_aligned<'a>(
+        &'a mut self,
+        category: Option<Self::Cat>,
+        alignment: usize,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>
+    ) -> Result<HeapToken>
+    where
+        Self::Cat: 'a;
     
     fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer>;
@@ -390,13 +398,6 @@ impl<C: HeapCategory> WriteCtxImpl<C> {
         WriteCtxImpl {
             default_heap: WriteHeap::new(),
             heaps: HashMap::new(),
-        }
-    }
-    
-    fn heap_or_default_mut(&mut self, category: Option<C>) -> &mut WriteHeap<WriteCtxWriter> {
-        match category {
-            Some(cat) => self.heap_mut(cat),
-            None => &mut self.default_heap,
         }
     }
     
@@ -446,15 +447,22 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
-        let heap = self.heap_or_default_mut(category.clone());
-        let prev_current_block = heap.current_block;
-        let new_block_token = heap.seek_to_new_block(alignment)?;
+    fn allocate_next_block_aligned<'a>(
+        &'a mut self,
+        category: Option<Self::Cat>,
+        alignment: usize,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>
+    ) -> Result<HeapToken>
+    where
+        C: 'a
+    {
+        let mut ctx: InnerWriteCtx<'_, C, WriteCtxImpl<C>> = InnerWriteCtx::new(self, category.unwrap_or_default());
+        let prev_current_block = ctx.default_heap.current_block;
+        let new_block_token = ctx.default_heap.seek_to_new_block(alignment)?;
         
-        content_callback(self)?;
+        content_callback(&mut ctx)?;
         
-        let heap = self.heap_or_default_mut(category);
-        heap.current_block = prev_current_block;
+        ctx.default_heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
@@ -566,7 +574,12 @@ where
         Ok(new_block_token)
     }
     
-    fn allocate_next_block_aligned(&mut self, category: Option<Self::Cat>, alignment: usize, content_callback: impl FnOnce(&mut Self) -> Result<()>) -> Result<HeapToken> {
+    fn allocate_next_block_aligned<'a>(
+        &'a mut self,
+        category: Option<Self::Cat>,
+        alignment: usize,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
+    ) -> Result<HeapToken> {
         let heap = self.heap_or_default_mut(category.clone());
         let prev_current_block = heap.current_block;
         let new_block_token = heap.seek_to_new_block(alignment)?;
