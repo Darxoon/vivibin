@@ -359,7 +359,7 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     // TODO: should this even still be an associated type or make it into a type parameter?
     type Cat: Eq + Hash + Default + Clone;
     type Writer: Writer;
-    type InnerCtx<'a>: WriteCtx<Cat = Self::Cat, Writer = Self::Writer> where Self::Cat: 'a;
+    type InnerCtx<'a>: WriteCtx<Cat = Self::Cat, Writer = Self::Writer> where Self: 'a;
     
     fn allocate_next_block<'a>(
         &'a mut self,
@@ -426,7 +426,7 @@ impl<C: HeapCategory> Default for WriteCtxImpl<C> {
 impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
     type Cat = C;
     type Writer = WriteCtxWriter;
-    type InnerCtx<'a> = InnerWriteCtx<'a, C, WriteCtxImpl<C>> where C: 'a;
+    type InnerCtx<'a> = InnerWriteCtx<'a, C, WriteCtxImpl<C>> where Self: 'a;
 
     fn allocate_next_block<'a>(
         &'a mut self,
@@ -541,13 +541,6 @@ where
             ctx,
         }
     }
-    
-    fn heap_or_default_mut(&mut self, category: Option<C>) -> &mut WriteHeap<WriteCtxWriter> {
-        match category {
-            Some(cat) => self.heap_mut(cat),
-            None => &mut self.default_heap,
-        }
-    }
 }
 
 impl<C, W> WriteCtx for InnerWriteCtx<'_, C, W>
@@ -557,20 +550,21 @@ where
 {
     type Cat = C;
     type Writer = WriteCtxWriter;
-    type InnerCtx<'a> = Self where C: 'a;
+    type InnerCtx<'a> = InnerWriteCtx<'a, C, Self> where Self: 'a;
 
     fn allocate_next_block<'a>(
-        &mut self,
-        category: Option<Self::Cat>, content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
+        &'a mut self,
+        category: Option<Self::Cat>,
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
     ) -> Result<HeapToken> where C: 'a {
-        let heap = self.heap_or_default_mut(category.clone());
-        let prev_current_block = heap.current_block;
-        let new_block_token = heap.seek_to_new_block(0)?;
+        let mut ctx: InnerWriteCtx<'_, C, Self> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
-        content_callback(self)?;
+        let prev_current_block = ctx.default_heap.current_block;
+        let new_block_token = ctx.default_heap.seek_to_new_block(0)?;
         
-        let heap = self.heap_or_default_mut(category);
-        heap.current_block = prev_current_block;
+        content_callback(&mut ctx)?;
+        
+        ctx.default_heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
@@ -580,14 +574,14 @@ where
         alignment: usize,
         content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
     ) -> Result<HeapToken> {
-        let heap = self.heap_or_default_mut(category.clone());
-        let prev_current_block = heap.current_block;
-        let new_block_token = heap.seek_to_new_block(alignment)?;
+        let mut ctx: InnerWriteCtx<'_, C, Self> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
-        content_callback(self)?;
+        let prev_current_block = ctx.default_heap.current_block;
+        let new_block_token = ctx.default_heap.seek_to_new_block(alignment)?;
         
-        let heap = self.heap_or_default_mut(category);
-        heap.current_block = prev_current_block;
+        content_callback(&mut ctx)?;
+        
+        ctx.default_heap.current_block = prev_current_block;
         Ok(new_block_token)
     }
     
