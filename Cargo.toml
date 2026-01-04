@@ -8,6 +8,7 @@ anyhow = "1.0.95"
 array-init = "2.1.0"
 byteorder = "1.5.0"
 hashbrown = { version = "0.15.5", optional = true }
+indexmap = "2.11.4"
 vivibin_derive = { path = "vivibin_derive" }
 
 [lints.clippy]

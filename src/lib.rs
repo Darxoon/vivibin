@@ -12,8 +12,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 use anyhow::{anyhow, Result};
 use array_init::try_array_init;
-
-use crate::util::HashMap;
+use indexmap::IndexMap;
 
 pub mod default_impls;
 pub mod pointers;
@@ -381,6 +380,9 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer>;
     
+    fn heap_id_of(&mut self, category: Self::Cat) -> u32;
+    fn heap_token_at_current_pos(&mut self) -> Result<HeapToken>;
+    
     // useful for child ctx's
     fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>);
     fn remove_heap(&mut self, category: &Self::Cat) -> WriteHeap<Self::Writer>;
@@ -390,14 +392,14 @@ pub type WriteCtxWriter = Cursor<Vec<u8>>;
 
 pub struct WriteCtxImpl<C: HeapCategory> {
     default_heap: WriteHeap<WriteCtxWriter>,
-    heaps: HashMap<C, WriteHeap<WriteCtxWriter>>,
+    heaps: IndexMap<C, WriteHeap<WriteCtxWriter>>,
 }
 
 impl<C: HeapCategory> WriteCtxImpl<C> {
     pub fn new() -> Self {
         WriteCtxImpl {
             default_heap: WriteHeap::new(),
-            heaps: HashMap::new(),
+            heaps: IndexMap::new(),
         }
     }
     
@@ -436,10 +438,12 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
     where
         C: 'a,
     {
+        let heap_id = self.heap_id_of(category.clone().unwrap_or_default());
+        
         let mut ctx: InnerWriteCtx<'_, C, WriteCtxImpl<C>> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
         let prev_current_block = ctx.default_heap.current_block;
-        let new_block_token = ctx.default_heap.seek_to_new_block(0)?;
+        let new_block_token = ctx.default_heap.seek_to_new_block(0, heap_id)?;
         
         content_callback(&mut ctx)?;
         
@@ -456,9 +460,11 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
     where
         C: 'a
     {
+        let heap_id = self.heap_id_of(category.clone().unwrap_or_default());
+        
         let mut ctx: InnerWriteCtx<'_, C, WriteCtxImpl<C>> = InnerWriteCtx::new(self, category.unwrap_or_default());
         let prev_current_block = ctx.default_heap.current_block;
-        let new_block_token = ctx.default_heap.seek_to_new_block(alignment)?;
+        let new_block_token = ctx.default_heap.seek_to_new_block(alignment, heap_id)?;
         
         content_callback(&mut ctx)?;
         
@@ -482,6 +488,16 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
             // wow HashMap::entry is such a cool api actually
             self.heaps.entry(category).or_default()
         }
+    }
+    
+    fn heap_id_of(&mut self, category: Self::Cat) -> u32 {
+        self.heaps.entry(category.clone()).or_default();
+        self.heaps.get_index_of(&category).unwrap() as u32
+    }
+    
+    fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
+        let heap_id = self.heap_id_of(C::default());
+        self.default_heap.heap_token_at_current_pos_inner(heap_id)
     }
     
     fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>) {
@@ -557,10 +573,12 @@ where
         category: Option<Self::Cat>,
         content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
     ) -> Result<HeapToken> where C: 'a {
+        let heap_id = self.ctx.heap_id_of(category.clone().unwrap_or_default());
+        
         let mut ctx: InnerWriteCtx<'_, C, Self> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
         let prev_current_block = ctx.default_heap.current_block;
-        let new_block_token = ctx.default_heap.seek_to_new_block(0)?;
+        let new_block_token = ctx.default_heap.seek_to_new_block(0, heap_id)?;
         
         content_callback(&mut ctx)?;
         
@@ -574,10 +592,12 @@ where
         alignment: usize,
         content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
     ) -> Result<HeapToken> {
+        let heap_id = self.ctx.heap_id_of(category.clone().unwrap_or_default());
+        
         let mut ctx: InnerWriteCtx<'_, C, Self> = InnerWriteCtx::new(self, category.unwrap_or_default());
         
         let prev_current_block = ctx.default_heap.current_block;
-        let new_block_token = ctx.default_heap.seek_to_new_block(alignment)?;
+        let new_block_token = ctx.default_heap.seek_to_new_block(alignment, heap_id)?;
         
         content_callback(&mut ctx)?;
         
@@ -601,6 +621,15 @@ where
         }
     }
 
+    fn heap_id_of(&mut self, category: Self::Cat) -> u32 {
+        self.ctx.heap_id_of(category)
+    }
+    
+    fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
+        let heap_id = self.ctx.heap_id_of(self.default_category.clone());
+        self.default_heap.heap_token_at_current_pos_inner(heap_id)
+    }
+    
     fn set_heap(&mut self, category: Self::Cat, heap: WriteHeap<Self::Writer>) {
         if category == self.default_category {
             self.default_heap = heap;
@@ -669,8 +698,9 @@ pub fn align_to(writer: &mut impl Writer, alignment: usize) -> Result<()> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeapToken {
+    heap_id: u32,
     block_id: u32,
-    offset: u32,
+    offset: usize,
 }
 
 impl HeapToken {
@@ -736,14 +766,15 @@ impl<W: Writer> WriteHeap<W> {
         align_to(self.cur_writer(), alignment)
     }
     
-    pub fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
+    fn heap_token_at_current_pos_inner(&mut self, heap_id: u32) -> Result<HeapToken> {
         Ok(HeapToken {
+            heap_id,
             block_id: self.current_block as u32,
-            offset: self.cur_writer().position()? as u32,
+            offset: self.cur_writer().position()? as usize,
         })
     }
     
-    fn seek_to_new_block(&mut self, alignment: usize) -> Result<HeapToken> {
+    fn seek_to_new_block(&mut self, alignment: usize, heap_id: u32) -> Result<HeapToken> {
         if self.current_block == self.blocks.len() - 1 {
             // allocate new block
             self.current_block = self.blocks.len();
@@ -754,7 +785,7 @@ impl<W: Writer> WriteHeap<W> {
             self.align_to(alignment)?;
         }
         
-        self.heap_token_at_current_pos()
+        self.heap_token_at_current_pos_inner(heap_id)
     }
 }
 
@@ -776,8 +807,7 @@ impl WriteHeap<WriteCtxWriter> {
             writer.write_all(block.writer.get_ref())?;
             
             // apply previous relocations
-            #[allow(clippy::let_with_type_underscore)]
-            let all_relocations_to_current: _ = all_relocations.extract_if(.., |(_, token)| {
+            let all_relocations_to_current = all_relocations.extract_if(.., |(_, token)| {
                 token.block_id as usize == block_id
             });
             
