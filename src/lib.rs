@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use core::{
+    cell::RefCell,
     cmp::{Eq, Ordering},
     default::Default,
     hash::Hash,
@@ -13,6 +14,8 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use anyhow::{anyhow, Result};
 use array_init::try_array_init;
 use indexmap::IndexMap;
+
+use util::HashMap;
 
 pub mod default_impls;
 pub mod pointers;
@@ -354,6 +357,7 @@ macro_rules! impl_writable_from_simple {
 }
 
 // boxed serialization stuff
+// TODO: merge WriteCtxImpl and InnerWriteCtx into one struct and remove this trait
 pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     // TODO: should this even still be an associated type or make it into a type parameter?
     type Cat: Eq + Hash + Default + Clone;
@@ -380,7 +384,7 @@ pub trait WriteCtx: Deref<Target = WriteHeap<Self::Writer>> + DerefMut {
     fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>>;
     fn heap_mut(&mut self, category: Self::Cat) -> &mut WriteHeap<Self::Writer>;
     
-    fn heap_id_of(&mut self, category: Self::Cat) -> u32;
+    fn heap_id_of(&mut self, category: Self::Cat) -> HeapID;
     fn heap_token_at_current_pos(&mut self) -> Result<HeapToken>;
     
     // useful for child ctx's
@@ -392,7 +396,7 @@ pub type WriteCtxWriter = Cursor<Vec<u8>>;
 
 pub struct WriteCtxImpl<C: HeapCategory> {
     default_heap: WriteHeap<WriteCtxWriter>,
-    heaps: IndexMap<C, WriteHeap<WriteCtxWriter>>,
+    heaps: IndexMap<C, Option<WriteHeap<WriteCtxWriter>>>,
 }
 
 impl<C: HeapCategory> WriteCtxImpl<C> {
@@ -406,13 +410,15 @@ impl<C: HeapCategory> WriteCtxImpl<C> {
     pub fn to_buffer<D: WriteDomain<Cat = C>>(mut self, domain: &mut D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
         
-        self.heaps.insert(C::default(), self.default_heap);
+        self.heaps.insert(C::default(), Some(self.default_heap));
         
         let mut heaps = self.heaps.iter().collect::<Vec<_>>();
         heaps.sort_by_key(|(category, _)| *category);
         
         for (_, heap) in heaps {
-            heap.to_writer(&mut writer, domain, block_offsets.as_deref_mut())?;
+            if let Some(heap) = heap {
+                heap.to_writer(&mut writer, domain, block_offsets.as_deref_mut())?;
+            }
         }
         
         Ok(writer.into_inner())
@@ -472,12 +478,11 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
         Ok(new_block_token)
     }
     
-    // I'm honestly not sure anymore where these are useful
     fn heap(&self, category: &Self::Cat) -> Option<&WriteHeap<Self::Writer>> {
         if *category == C::default() {
             Some(&self.default_heap)
         } else {
-            self.heaps.get(category)
+            self.heaps.get(category).and_then(|category| category.as_ref())
         }
     }
     
@@ -485,14 +490,20 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
         if category == C::default() {
             &mut self.default_heap
         } else {
-            // wow HashMap::entry is such a cool api actually
-            self.heaps.entry(category).or_default()
+            let heap = self.heaps.entry(category).or_default();
+            
+            if let Some(heap) = heap {
+                heap
+            } else {
+                *heap = Some(WriteHeap::default());
+                heap.as_mut().unwrap()
+            }
         }
     }
     
-    fn heap_id_of(&mut self, category: Self::Cat) -> u32 {
+    fn heap_id_of(&mut self, category: Self::Cat) -> HeapID {
         self.heaps.entry(category.clone()).or_default();
-        self.heaps.get_index_of(&category).unwrap() as u32
+        HeapID(self.heaps.get_index_of(&category).unwrap() as u32)
     }
     
     fn heap_token_at_current_pos(&mut self) -> Result<HeapToken> {
@@ -504,7 +515,7 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
         if category == C::default() {
             self.default_heap = heap;
         } else {
-            self.heaps.insert(category, heap);
+            self.heaps.insert(category, Some(heap));
         }
     }
     
@@ -512,9 +523,11 @@ impl<C: HeapCategory> WriteCtx for WriteCtxImpl<C> {
         if *category == C::default() {
             mem::take(&mut self.default_heap)
         } else {
-            self.heaps
-                .remove(category)
-                .unwrap_or_default()
+            if let Some(heap) = self.heaps.get_mut(category) {
+                heap.take().unwrap_or_default()
+            } else {
+                WriteHeap::default()
+            }
         }
     }
 }
@@ -621,7 +634,7 @@ where
         }
     }
 
-    fn heap_id_of(&mut self, category: Self::Cat) -> u32 {
+    fn heap_id_of(&mut self, category: Self::Cat) -> HeapID {
         self.ctx.heap_id_of(category)
     }
     
@@ -698,7 +711,7 @@ pub fn align_to(writer: &mut impl Writer, alignment: usize) -> Result<()> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HeapToken {
-    heap_id: u32,
+    heap_id: HeapID, // u32
     block_id: u32,
     offset: usize,
 }
@@ -724,6 +737,9 @@ impl Ord for HeapToken {
         self.offset.cmp(&other.offset)
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct HeapID(pub u32);
 
 #[derive(Clone, Debug, Default)]
 pub struct HeapBlock<W: Writer> {
@@ -766,7 +782,7 @@ impl<W: Writer> WriteHeap<W> {
         align_to(self.cur_writer(), alignment)
     }
     
-    fn heap_token_at_current_pos_inner(&mut self, heap_id: u32) -> Result<HeapToken> {
+    fn heap_token_at_current_pos_inner(&mut self, heap_id: HeapID) -> Result<HeapToken> {
         Ok(HeapToken {
             heap_id,
             block_id: self.current_block as u32,
@@ -774,7 +790,7 @@ impl<W: Writer> WriteHeap<W> {
         })
     }
     
-    fn seek_to_new_block(&mut self, alignment: usize, heap_id: u32) -> Result<HeapToken> {
+    fn seek_to_new_block(&mut self, alignment: usize, heap_id: HeapID) -> Result<HeapToken> {
         if self.current_block == self.blocks.len() - 1 {
             // allocate new block
             self.current_block = self.blocks.len();
@@ -792,10 +808,12 @@ impl<W: Writer> WriteHeap<W> {
 impl WriteHeap<WriteCtxWriter> {
     pub fn to_buffer(&self, domain: &mut impl WriteDomain, block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
         let mut writer = WriteCtxWriter::default();
+        // TODO: migrate this to HeapResolver
         self.to_writer(&mut writer, domain, block_offsets)?;
         Ok(writer.into_inner())
     }
     
+    #[deprecated]
     pub fn to_writer(&self, writer: &mut WriteCtxWriter, domain: &mut impl WriteDomain, mut block_offsets: Option<&mut Vec<usize>>) -> Result<()> {
         let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
         
@@ -850,3 +868,69 @@ impl<W: Writer> DerefMut for WriteHeap<W> {
         self.cur_writer()
     }
 }
+
+#[derive(Debug, Default)]
+pub struct HeapResolver {
+    pub block_offsets: Vec<usize>,
+    pub all_relocations: Vec<(HeapID, usize, HeapToken)>,
+    pub output_buffers: HashMap<HeapID, RefCell<Cursor<Vec<u8>>>>,
+}
+
+impl HeapResolver {
+    pub fn write_heap(&mut self, domain: &mut impl WriteDomain, heap_id: HeapID, heap: &WriteHeap<WriteCtxWriter>) -> Result<()> {
+        // buffer to avoid reallocating every iteration
+        let mut relocations_from_current = Vec::new();
+        
+        for (block_id, block) in heap.blocks.iter().enumerate() {
+            self.output_buffers.entry(heap_id).or_default();
+            let writer = &mut *self.output_buffers[&heap_id].borrow_mut();
+            
+            let block_start = Cursor::position(writer) as usize;
+            self.block_offsets.push(block_start);
+            writer.write_all(block.writer.get_ref())?;
+            
+            // apply previous relocations pointing to current heap and block
+            let all_relocations_to_current = self.all_relocations.extract_if(
+                ..,
+                |(_, _, token)| {
+                    token.block_id as usize == block_id && token.heap_id == heap_id
+                },
+            );
+            
+            for (cur_heap_id, offset, token) in all_relocations_to_current {
+                if cur_heap_id == heap_id {
+                    scoped_writer_pos!(writer);
+                    writer.set_position(offset as u64);
+                    domain.apply_reference(writer, block_start + token.offset as usize)?;
+                } else {
+                    let writer = &mut *self.output_buffers[&cur_heap_id].borrow_mut();
+                    
+                    scoped_writer_pos!(writer);
+                    writer.set_position(offset as u64);
+                    domain.apply_reference(writer, block_start + token.offset as usize)?;
+                }
+            }
+            
+            relocations_from_current.clear();
+            relocations_from_current.extend_from_slice(&block.relocations);
+            
+            // TODO: apply relocations to previously visited heaps and blocks
+            // let all_relocations_to_previous = relocations_from_current.extract_if(
+            //     ..,
+            //     |(_, token)| {
+            //         (token.heap_id == heap_id && (token.block_id as usize) < block_id)
+            //         || self.output_buffers.contains_key(&token.heap_id)
+            //     },
+            // );
+            // drop(all_relocations_to_previous);
+            
+            // push new relocations
+            self.all_relocations.extend(relocations_from_current.iter().copied()
+                .map(|(local_offset, token)| (heap_id, block_start + local_offset, token)));
+            
+        }
+        
+        Ok(())
+    }
+}
+
