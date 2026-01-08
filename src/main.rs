@@ -273,6 +273,34 @@ impl<C: HeapCategory, D: CanWriteBox<C>> Writable<C, D> for BoxedChild {
     }
 }
 
+#[derive(Debug, Clone, Readable)]
+#[boxed]
+struct NewBoxedChild {
+    id: u32,
+    visible: bool,
+}
+
+impl<C: HeapCategory, D: CanWriteBox<C>> Writable<C, D> for NewBoxedChild {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
+        self.id.to_writer(ctx, domain)?;
+        self.visible.to_writer(ctx, domain)?;
+        Ok(())
+    }
+    
+    // #[boxed] with the new serialization method would generate this:
+    // (ignoring the lack of relocation support for this)
+    fn to_writer(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
+        0u32.to_writer(ctx, domain)?;
+        Ok(())
+    }
+    
+    fn to_writer_post(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
+        self.to_writer_unboxed(ctx, domain)?;
+        self.to_writer_unboxed_post(ctx, domain)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Readable, Writable)]
 #[allow(dead_code)]
 #[extra_write_domain_deps(CanWriteBox<Cat>)]
@@ -295,7 +323,7 @@ struct Npc {
     
     item_ids: std::vec::Vec<u32>,
     
-    child: BoxedChild,
+    child: NewBoxedChild,
 }
 
 impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
@@ -308,7 +336,7 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
         // let child = domain.read_box::<BoxedChild, R>(reader, |reader| {
         //     BoxedChild::from_reader_unboxed(reader, domain)
         // })?;
-        let child = BoxedChild::from_reader(reader, domain)?;
+        let child = NewBoxedChild::from_reader(reader, domain)?;
         
         Ok(Npc {
             name,
@@ -336,23 +364,17 @@ where
         
         domain.write_slice_args_fallback(ctx, &self.item_ids, NewSerialization)?;
         
-        // explicitly boxed
-        // domain.write_box_of(ctx, |domain, ctx| {
-        //     self.child.to_writer_unboxed(ctx, domain)
-        // })?;
-        0u32.to_writer(ctx, domain)?;
-        // domain.write_fallback(ctx, &self.child)?;
+        self.child.to_writer(ctx, domain)?;
         Ok(())
     }
     
-    fn to_writer_post(&self, ctx: &mut impl WriteCtx<Cat>, domain: &mut D) -> Result<()> {
+    fn to_writer_unboxed_post(&self, ctx: &mut impl WriteCtx<Cat>, domain: &mut D) -> Result<()> {
         domain.write_args_post(ctx, &self.name, NewSerialization)?;
         self.position.to_writer_post(ctx, domain)?;
         self.is_visible.to_writer_post(ctx, domain)?;
         
         domain.write_slice_args_post_fallback(ctx, &self.item_ids, NewSerialization)?;
         
-        self.child.to_writer_unboxed(ctx, domain)?;
         self.child.to_writer_post(ctx, domain)?;
         Ok(())
     }

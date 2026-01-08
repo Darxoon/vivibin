@@ -349,14 +349,18 @@ pub trait CanWriteWithArgs<C: HeapCategory, T: 'static, A: Default>: CanWrite<C,
 pub trait Writable<C: HeapCategory, D: WriteDomain<Cat = C>>: Sized {
     fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()>;
     
+    #[allow(unused_variables)]
+    fn to_writer_unboxed_post(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
+        Ok(())
+    }
+    
     /// Override this with a write_box if this type should be boxed by default
     fn to_writer(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
         self.to_writer_unboxed(ctx, domain)
     }
     
-    #[allow(unused_variables)]
     fn to_writer_post(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
-        Ok(())
+        self.to_writer_unboxed_post(ctx, domain)
     }
 }
 
