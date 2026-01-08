@@ -3,10 +3,10 @@ use std::io::Cursor;
 
 use anyhow::Result;
 use vivibin::{
-    scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteBox,
-    CanWriteSlice, EndianSpecific, Endianness, HeapCategory, ReadDomain,
+    scoped_reader_pos, CanRead, CanReadVec, CanWrite, CanWriteBox, CanWriteSlice,
+    CanWriteSliceWithArgs, CanWriteWithArgs, EndianSpecific, Endianness, HeapCategory, ReadDomain,
     ReadVecFallbackExt, Readable, Reader, SimpleWritable, Writable, WriteCtx, WriteDomain,
-    WriteDomainExt, WriteSliceFallbackExt, Writer,
+    WriteDomainExt, WriteSliceWithArgsFallbackExt, Writer,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -41,7 +41,11 @@ impl<C: HeapCategory> FormatCgfx<C> {
     pub fn read_relative_ptr(reader: &mut impl Reader) -> Result<Pointer> {
         let pos = reader.position()?;
         let raw_ptr = u32::from_reader(reader, Self::default())?;
-        Ok(if raw_ptr != 0 { Pointer::new(pos as u32 + raw_ptr) } else { Pointer::new(0) })
+        Ok(if raw_ptr != 0 {
+            Pointer::new(pos as u32 + raw_ptr)
+        } else {
+            Pointer::new(0)
+        })
     }
     
     pub fn write_relative_ptr(writer: &mut impl Writer, value: Pointer) -> Result<()> {
@@ -69,6 +73,16 @@ impl<C: HeapCategory> FormatCgfx<C> {
         })?;
         
         ctx.write_token::<4>(token)?;
+        Ok(())
+    }
+    
+    pub fn write_str_new(&mut self, ctx: &mut impl WriteCtx<C>) -> Result<()> {
+        0u32.to_writer(ctx, self)?;
+        Ok(())
+    }
+    
+    pub fn write_str_new_post(&mut self, ctx: &mut impl WriteCtx<C>, value: &str) -> Result<()> {
+        ctx.write_c_str(value)?;
         Ok(())
     }
     
@@ -176,6 +190,36 @@ impl<C: HeapCategory> CanWriteSlice<C> for FormatCgfx<C> {
     }
 }
 
+impl<C: HeapCategory, T: 'static> CanWriteSliceWithArgs<C, T, NewSerialization> for FormatCgfx<C> {
+    fn write_slice_args_of<W: WriteCtx<C>>(
+        &mut self,
+        ctx: &mut W,
+        values: &[T],
+        _args: NewSerialization,
+        _write_content: impl Fn(&mut Self, &mut W::InnerCtx<'_>, &T) -> Result<()>,
+    ) -> Result<()> {
+        (values.len() as u32).to_writer(ctx, self)?;
+        0u32.to_writer(ctx, self)?;
+        Ok(())
+    }
+    
+    fn write_slice_args_post_of<W: WriteCtx<C>>(
+        &mut self,
+        ctx: &mut W,
+        values: &[T],
+        _args: NewSerialization,
+        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+    ) -> Result<()> {
+        for value in values {
+            write_content(self, ctx, value)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct NewSerialization;
+
 impl<C: HeapCategory> CanWrite<C, str> for FormatCgfx<C> {
     fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &str) -> Result<()> {
         Self::write_str(ctx, value)
@@ -184,6 +228,15 @@ impl<C: HeapCategory> CanWrite<C, str> for FormatCgfx<C> {
 impl<C: HeapCategory> CanWrite<C, String> for FormatCgfx<C> {
     fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &String) -> Result<()> {
         Self::write_str(ctx, value)
+    }
+}
+impl<C: HeapCategory> CanWriteWithArgs<C, String, NewSerialization> for FormatCgfx<C> {
+    fn write_args(&mut self, ctx: &mut impl WriteCtx<C>, _value: &String, _: NewSerialization) -> Result<()> {
+        self.write_str_new(ctx)
+    }
+    
+    fn write_args_post(&mut self, ctx: &mut impl WriteCtx<C>, value: &String, _: NewSerialization) -> Result<()> {
+        self.write_str_new_post(ctx, value)
     }
 }
 impl<C: HeapCategory> CanWrite<C, Pointer> for FormatCgfx<C> {
@@ -267,19 +320,40 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     }
 }
 
-impl<Cat: HeapCategory, D: CanWrite<Cat, str> + CanWriteSlice<Cat> + CanWriteBox<Cat>> Writable<Cat, D> for Npc {
+impl<Cat, D> Writable<Cat, D> for Npc
+where
+    Cat: HeapCategory,
+    D: CanWrite<Cat, String>
+        + CanWriteWithArgs<Cat, String, NewSerialization>
+        + CanWriteSlice<Cat>
+        + CanWriteSliceWithArgs<Cat, u32, NewSerialization>
+        + CanWriteBox<Cat>,
+{
     fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat>, domain: &mut D) -> Result<()> {
-        // TODO: i don't know how this could be implemented with derive
-        // TODO: i also don't know if there is any benefit of this over String
-        domain.write(ctx, &self.name)?;
+        domain.write_args(ctx, &self.name, NewSerialization)?;
         self.position.to_writer(ctx, domain)?;
         self.is_visible.to_writer(ctx, domain)?;
-        domain.write_slice_fallback(ctx, &self.item_ids)?;
+        
+        domain.write_slice_args_fallback(ctx, &self.item_ids, NewSerialization)?;
+        
         // explicitly boxed
         // domain.write_box_of(ctx, |domain, ctx| {
         //     self.child.to_writer_unboxed(ctx, domain)
         // })?;
-        self.child.to_writer(ctx, domain)?;
+        0u32.to_writer(ctx, domain)?;
+        // domain.write_fallback(ctx, &self.child)?;
+        Ok(())
+    }
+    
+    fn to_writer_post(&self, ctx: &mut impl WriteCtx<Cat>, domain: &mut D) -> Result<()> {
+        domain.write_args_post(ctx, &self.name, NewSerialization)?;
+        self.position.to_writer_post(ctx, domain)?;
+        self.is_visible.to_writer_post(ctx, domain)?;
+        
+        domain.write_slice_args_post_fallback(ctx, &self.item_ids, NewSerialization)?;
+        
+        self.child.to_writer_unboxed(ctx, domain)?;
+        self.child.to_writer_post(ctx, domain)?;
         Ok(())
     }
 }
@@ -310,11 +384,13 @@ fn main() -> Result<()> {
     ];
     
     let mut cursor: Cursor<&[u8]> = Cursor::new(BYTES);
-    let npc = SimpleNpc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
+    let npc = Npc::from_reader(&mut cursor, FormatCgfx::<()>::default())?;
     println!("Hello World {npc:?}");
     
     let mut ctx = FormatCgfx::<()>::new_ctx();
     npc.to_writer(&mut ctx, &mut FormatCgfx::<()>::default())?;
+    npc.to_writer_post(&mut ctx, &mut FormatCgfx::<()>::default())?;
+    
     let written = ctx.to_buffer(&mut FormatCgfx::<()>::default(), None)?;
     println!("Written {written:x?}");
     assert_eq!(&written, &BYTES, "Serialization failure, result not matching");

@@ -236,7 +236,7 @@ impl<C: HeapCategory, D: CanWriteBox<C>> WriteBoxFallbackExt<C> for D {}
 pub trait WriteBoxExt<C: HeapCategory>: CanWriteBox<C> {
     fn write_box<T: 'static>(&mut self, ctx: &mut impl WriteCtx<C>, value: &T) -> Result<()>
     where
-        Self: CanWrite<C, T>
+        Self: CanWrite<C, T>,
     {
         self.write_box_of(ctx, |domain, ctx| {
             domain.write(ctx, value)
@@ -269,7 +269,7 @@ impl<C: HeapCategory, D: CanWriteSlice<C>> WriteSliceFallbackExt<C> for D {}
 pub trait WriteSliceExt<C: HeapCategory>: CanWriteSlice<C> {
     fn write_slice<T: 'static>(&mut self, ctx: &mut impl WriteCtx<C>, values: &[T]) -> Result<()>
     where
-        Self: CanWrite<C, T>
+        Self: CanWrite<C, T>,
     {
         self.write_slice_of(ctx, values, |domain, ctx, value| {
             domain.write(ctx, value)
@@ -287,11 +287,28 @@ pub trait CanWriteSliceWithArgs<C: HeapCategory, T: 'static, A>: WriteDomain<Cat
         args: A,
         write_content: impl Fn(&mut Self, &mut W::InnerCtx<'_>, &T) -> Result<()>,
     ) -> Result<()>;
+    
+    #[allow(unused_variables)]
+    fn write_slice_args_post_of<W: WriteCtx<C>>(
+        &mut self,
+        ctx: &mut W,
+        values: &[T],
+        args: A,
+        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub trait WriteSliceWithArgsFallbackExt<C: HeapCategory, T: Writable<C, Self> + 'static, A>: CanWriteSliceWithArgs<C, T, A> {
     fn write_slice_args_fallback(&mut self, ctx: &mut impl WriteCtx<C>, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
+            value.to_writer(ctx, domain)
+        })
+    }
+    
+    fn write_slice_args_post_fallback(&mut self, ctx: &mut impl WriteCtx<C>, values: &[T], args: A) -> Result<()> {
+        self.write_slice_args_post_of(ctx, values, args, |domain, ctx, value| {
             value.to_writer(ctx, domain)
         })
     }
@@ -312,10 +329,20 @@ impl<C: HeapCategory, T: 'static, A, D: CanWrite<C, T> + CanWriteSliceWithArgs<C
 // C type parameter not necessary with next solver
 pub trait CanWrite<C: HeapCategory, T: 'static + ?Sized>: WriteDomain<Cat = C>  {
     fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &T) -> Result<()>;
+    
+    #[allow(unused_variables)]
+    fn write_post(&mut self, ctx: &mut impl WriteCtx<C>, value: &T) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub trait CanWriteWithArgs<C: HeapCategory, T: 'static, A: Default>: CanWrite<C, T> {
     fn write_args(&mut self, ctx: &mut impl WriteCtx<C>, value: &T, args: A) -> Result<()>;
+    
+    #[allow(unused_variables)]
+    fn write_args_post(&mut self, ctx: &mut impl WriteCtx<C>, value: &T, args: A) -> Result<()> {
+        Ok(())
+    }
 }
 
 // C type parameter not necessary with next solver
@@ -325,6 +352,11 @@ pub trait Writable<C: HeapCategory, D: WriteDomain<Cat = C>>: Sized {
     /// Override this with a write_box if this type should be boxed by default
     fn to_writer(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
         self.to_writer_unboxed(ctx, domain)
+    }
+    
+    #[allow(unused_variables)]
+    fn to_writer_post(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -350,7 +382,9 @@ where
     Cat: Eq + Hash + Default + Clone,
 {
     type Writer: Writer;
-    type InnerCtx<'a>: WriteCtx<Cat, Writer = Self::Writer> where Self: 'a;
+    type InnerCtx<'a>: WriteCtx<Cat, Writer = Self::Writer>
+    where
+        Self: 'a;
     
     fn allocate_next_block<'a>(
         &'a mut self,
@@ -448,10 +482,10 @@ impl<Cat: HeapCategory> WriteCtx<Cat> for WriteCtxImpl<Cat> {
         &'a mut self,
         category: Option<Cat>,
         alignment: usize,
-        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>
+        content_callback: impl FnOnce(&mut Self::InnerCtx<'a>) -> Result<()>,
     ) -> Result<HeapToken>
     where
-        Cat: 'a
+        Cat: 'a,
     {
         let heap_id = self.heap_id_of(category.clone().unwrap_or_default());
         
@@ -469,7 +503,9 @@ impl<Cat: HeapCategory> WriteCtx<Cat> for WriteCtxImpl<Cat> {
         if *category == Cat::default() {
             Some(&self.default_heap)
         } else {
-            self.heaps.get(category).and_then(|category| category.as_ref())
+            self.heaps
+                .get(category)
+                .and_then(|category| category.as_ref())
         }
     }
     
