@@ -62,7 +62,7 @@ impl<C: HeapCategory> FormatCgfx<C> {
         reader.read_c_str()
     }
     
-    pub fn write_str(ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
+    pub fn write_str(ctx: &mut impl WriteCtx<C>, value: &str) -> Result<()> {
         let token = ctx.allocate_next_block(None, move |ctx| {
             ctx.write_c_str(value)?;
             Ok(())
@@ -143,8 +143,8 @@ impl<C: HeapCategory> WriteDomain for FormatCgfx<C> {
     }
 }
 
-impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
-    fn write_box_of<W: WriteCtx>(
+impl<C: HeapCategory> CanWriteBox<C> for FormatCgfx<C> {
+    fn write_box_of<W: WriteCtx<C>>(
         &mut self,
         ctx: &mut W,
         write_content: impl FnOnce(&mut Self, &mut W::InnerCtx<'_>) -> Result<()>,
@@ -157,8 +157,8 @@ impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
     }
 }
 
-impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
-    fn write_slice_of<T: 'static, W: WriteCtx<Cat = Self::Cat>>(
+impl<C: HeapCategory> CanWriteSlice<C> for FormatCgfx<C> {
+    fn write_slice_of<T: 'static, W: WriteCtx<C>>(
         &mut self,
         ctx: &mut W,
         values: &[T],
@@ -176,18 +176,18 @@ impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
     }
 }
 
-impl<C: HeapCategory> CanWrite<str> for FormatCgfx<C> {
-    fn write(&mut self, ctx: &mut impl WriteCtx, value: &str) -> Result<()> {
+impl<C: HeapCategory> CanWrite<C, str> for FormatCgfx<C> {
+    fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &str) -> Result<()> {
         Self::write_str(ctx, value)
     }
 }
-impl<C: HeapCategory> CanWrite<String> for FormatCgfx<C> {
-    fn write(&mut self, ctx: &mut impl WriteCtx, value: &String) -> Result<()> {
+impl<C: HeapCategory> CanWrite<C, String> for FormatCgfx<C> {
+    fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &String) -> Result<()> {
         Self::write_str(ctx, value)
     }
 }
-impl<C: HeapCategory> CanWrite<Pointer> for FormatCgfx<C> {
-    fn write(&mut self, ctx: &mut impl WriteCtx, value: &Pointer) -> Result<()> {
+impl<C: HeapCategory> CanWrite<C, Pointer> for FormatCgfx<C> {
+    fn write(&mut self, ctx: &mut impl WriteCtx<C>, value: &Pointer) -> Result<()> {
         Self::write_relative_ptr(ctx.cur_writer(), *value)
     }
 }
@@ -206,14 +206,14 @@ struct BoxedChild {
     visible: bool,
 }
 
-impl<D: CanWriteBox> Writable<D> for BoxedChild {
-    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
+impl<C: HeapCategory, D: CanWriteBox<C>> Writable<C, D> for BoxedChild {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
         self.id.to_writer(ctx, domain)?;
         self.visible.to_writer(ctx, domain)?;
         Ok(())
     }
     
-    fn to_writer(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
+    fn to_writer(&self, ctx: &mut impl WriteCtx<C>, domain: &mut D) -> Result<()> {
         domain.write_box_of(ctx, |domain, ctx| {
             self.to_writer_unboxed(ctx, domain)
         })
@@ -222,7 +222,7 @@ impl<D: CanWriteBox> Writable<D> for BoxedChild {
 
 #[derive(Debug, Readable, Writable)]
 #[allow(dead_code)]
-#[extra_write_domain_deps(CanWriteBox)]
+#[extra_write_domain_deps(CanWriteBox<Cat>)]
 struct SimpleNpc {
     #[require_domain]
     name: String,
@@ -267,8 +267,8 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
     }
 }
 
-impl<D: CanWrite<str> + CanWriteSlice + CanWriteBox> Writable<D> for Npc {
-    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
+impl<Cat: HeapCategory, D: CanWrite<Cat, str> + CanWriteSlice<Cat> + CanWriteBox<Cat>> Writable<Cat, D> for Npc {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat>, domain: &mut D) -> Result<()> {
         // TODO: i don't know how this could be implemented with derive
         // TODO: i also don't know if there is any benefit of this over String
         domain.write(ctx, &self.name)?;

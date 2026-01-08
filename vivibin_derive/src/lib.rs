@@ -48,7 +48,7 @@ impl NamedField<'_> {
         (name, tokens)
     }
     
-    fn write_write_statement(&self, domain: &Ident, ctx: &Ident, vec_required: &mut bool, required_domain_impls: &[&Type]) -> TokenStream {
+    fn write_write_statement(&self, domain: &Ident, ctx: &Ident, cat: &Ident, vec_required: &mut bool, required_domain_impls: &[&Type]) -> TokenStream {
         let NamedField { name, ty, .. } = *self;
         
         let inner_vec_type = Self::get_vec_inner_type(ty);
@@ -58,10 +58,10 @@ impl NamedField<'_> {
         
         match (inner_vec_type, explicit_write_impl) {
             (None, true) => quote! {
-                ::vivibin::CanWrite::<#ty>::write(#domain, #ctx, &self.#name)?;
+                ::vivibin::CanWrite::<#cat, #ty>::write(#domain, #ctx, &self.#name)?;
             },
             (None, false) => quote! {
-                <#ty as ::vivibin::Writable<D>>::to_writer(&self.#name, #ctx, #domain)?;
+                <#ty as ::vivibin::Writable<#cat, D>>::to_writer(&self.#name, #ctx, #domain)?;
             },
             (Some(inner_ty), true) => {
                 *vec_required = true;
@@ -307,13 +307,15 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let domain = Ident::new("domain", Span::call_site());
     let reader = Ident::new("ctx", Span::call_site());
     
+    let cat: Ident = Ident::new("Cat", Span::call_site());
+    
     let required_domain_impls: Vec<&Type> = structure.required_domain_impls();
     let mut vec_required = false;
     
     let body = match &structure {
         Structure::Named(named_fields) => {
             let statements = named_fields.iter()
-                .map(|field| field.write_write_statement(&domain, &reader, &mut vec_required, &required_domain_impls))
+                .map(|field| field.write_write_statement(&domain, &reader, &cat, &mut vec_required, &required_domain_impls))
                 .collect::<Vec<_>>();
             
             quote! {
@@ -324,18 +326,18 @@ pub fn derive_writable(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     };
     
     let constraint = match (required_domain_impls.is_empty(), vec_required) {
-        (true, true) => quote! { ::vivibin::CanWriteSlice },
-        (true, false) => quote! { ::vivibin::WriteDomain },
-        (false, true) => quote! { ::vivibin::CanWriteSlice + #(::vivibin::CanWrite<#required_domain_impls>)+* },
-        (false, false) => quote! { #(::vivibin::CanWrite<#required_domain_impls>)+* },
+        (true, true) => quote! { ::vivibin::CanWriteSlice<#cat> },
+        (true, false) => quote! { ::vivibin::WriteDomain<Cat = #cat> },
+        (false, true) => quote! { ::vivibin::CanWriteSlice<#cat> + #(::vivibin::CanWrite<#cat, #required_domain_impls>)+* },
+        (false, false) => quote! { #(::vivibin::CanWrite<#cat, #required_domain_impls>)+* },
     };
     
     let extra_write_domain_deps = extra_write_domain_deps
         .map_or_else(TokenStream::new, |value| quote!(+ #value));
     
     quote! {
-        impl<D: #constraint #extra_write_domain_deps> ::vivibin::Writable<D> for #name {
-            fn to_writer_unboxed(&self, ctx: &mut impl ::vivibin::WriteCtx<Cat = D::Cat>, domain: &mut D) -> ::anyhow::Result<()> {
+        impl<#cat: ::vivibin::HeapCategory, D: #constraint #extra_write_domain_deps> ::vivibin::Writable<#cat, D> for #name {
+            fn to_writer_unboxed(&self, ctx: &mut impl ::vivibin::WriteCtx<#cat>, domain: &mut D) -> ::anyhow::Result<()> {
                 #body
                 Ok(())
             }
