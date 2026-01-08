@@ -26,10 +26,10 @@ impl NamedField<'_> {
         
         let tokens = match (inner_vec_type, explicit_read_impl) {
             (None, true) => quote! {
-                let #name: #ty = ::vivibin::CanRead::<#ty>::read(domain, reader)?;
+                let #name: #ty = ::vivibin::CanRead::<#ty>::read(#domain, #reader)?;
             },
             (None, false) => quote! {
-                let #name: #ty = ::vivibin::ReadDomainExt::read_fallback::<#ty>(#domain, #reader)?;
+                let #name: #ty = ::vivibin::Readable::from_reader(#reader, #domain)?;
             },
             (Some(inner_ty), true) => {
                 *vec_required = true;
@@ -61,7 +61,7 @@ impl NamedField<'_> {
                 ::vivibin::CanWrite::<#ty>::write(#domain, #ctx, &self.#name)?;
             },
             (None, false) => quote! {
-                ::vivibin::WriteDomainExt::write_fallback::<#ty>(#domain, #ctx, &self.#name)?;
+                <#ty as ::vivibin::Writable<D>>::to_writer(&self.#name, #ctx, #domain)?;
             },
             (Some(inner_ty), true) => {
                 *vec_required = true;

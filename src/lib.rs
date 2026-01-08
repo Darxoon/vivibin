@@ -108,20 +108,11 @@ pub trait EndianSpecific {
 pub trait ReadDomain: Copy + EndianSpecific {
     type Pointer;
     
-    fn read_unk<T: 'static>(self, reader: &mut impl Reader) -> Result<Option<T>>;
-    
     // TODO: make this optional to implement? i. e. split them into another Trait
     fn read_box_nullable<T, R: Reader>(self, reader: &mut R, read_content: impl FnOnce(&mut R) -> Result<T>) -> Result<Option<T>>;
 }
 
 pub trait ReadDomainExt: ReadDomain {
-    fn read_fallback<T: Readable<Self> + 'static>(self, reader: &mut impl Reader) -> Result<T> {
-        Ok(match self.read_unk::<T>(reader)? {
-            Some(x) => x,
-            None => T::from_reader(reader, self)?,
-        })
-    }
-    
     fn read_box<T, R: Reader>(self, reader: &mut R, read_content: impl FnOnce(&mut R) -> Result<T>) -> Result<T> {
         let offset = reader.position()?;
         let value = self.read_box_nullable(reader, read_content)?
@@ -134,7 +125,7 @@ pub trait ReadDomainExt: ReadDomain {
     }
     
     fn read_std_box_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Box<T>> {
-        self.read_std_box_of(reader, |reader| self.read_fallback::<T>(reader))
+        self.read_std_box_of(reader, |reader| T::from_reader(reader, self))
     }
     
     fn read_unk_array<T, R: Reader, const N: usize>(self, reader: &mut R, read_content: impl Fn(&mut R) -> Result<T>) -> Result<[T; N]> {
@@ -155,7 +146,7 @@ pub trait CanReadVec: ReadDomain {
 
 pub trait ReadVecFallbackExt: CanReadVec {
     fn read_std_vec_fallback<T: Readable<Self> + 'static, R: Reader>(self, reader: &mut R) -> Result<Vec<T>> {
-        self.read_std_vec_of(reader, |reader| self.read_fallback::<T>(reader))
+        self.read_std_vec_of(reader, |reader| T::from_reader(reader, self))
     }
 }
 
@@ -209,7 +200,6 @@ pub trait WriteDomain: Sized + EndianSpecific {
     type Pointer;
     type Cat: HeapCategory;
     
-    fn write_unk<T: 'static>(&mut self, ctx: &mut impl WriteCtx, value: &T) -> Result<Option<()>>;
     fn apply_reference(&mut self, writer: &mut impl Writer, heap_offset: usize) -> Result<()>;
     
     // TODO: writing with args
@@ -219,13 +209,6 @@ pub trait WriteDomain: Sized + EndianSpecific {
 pub trait WriteDomainExt: WriteDomain {
     fn new_ctx() -> WriteCtxImpl<Self::Cat> {
         WriteCtxImpl::new()
-    }
-    
-    fn write_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()> {
-        if self.write_unk::<T>(ctx, value)?.is_none() {
-            value.to_writer(ctx, self)?;
-        }
-        Ok(())
     }
 }
 
@@ -242,7 +225,7 @@ pub trait CanWriteBox: WriteDomain {
 pub trait WriteBoxFallbackExt: CanWriteBox {
     fn write_box_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, value: &T) -> Result<()> {
         self.write_box_of(ctx, |domain, ctx| {
-            domain.write_fallback::<T>(ctx, value)
+            value.to_writer(ctx, domain)
         })
     }
 }
@@ -274,7 +257,7 @@ pub trait CanWriteSlice: WriteDomain {
 pub trait WriteSliceFallbackExt: CanWriteSlice {
     fn write_slice_fallback<T: Writable<Self> + 'static>(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T]) -> Result<()> {
         self.write_slice_of(ctx, values, |domain, ctx, value| {
-            domain.write_fallback::<T>(ctx, value)
+            value.to_writer(ctx, domain)
         })
     }
 }
@@ -307,7 +290,7 @@ pub trait CanWriteSliceWithArgs<T: 'static, A>: WriteDomain {
 pub trait WriteSliceWithArgsFallbackExt<T: Writable<Self> + 'static, A>: CanWriteSliceWithArgs<T, A> {
     fn write_slice_args_fallback(&mut self, ctx: &mut impl WriteCtx<Cat = Self::Cat>, values: &[T], args: A) -> Result<()> {
         self.write_slice_args_of(ctx, values, args, |domain, ctx, value| {
-            domain.write_fallback::<T>(ctx, value)
+            value.to_writer(ctx, domain)
         })
     }
 }
