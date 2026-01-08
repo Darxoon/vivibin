@@ -221,7 +221,7 @@ impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
     fn write_box_of<W: WriteCtx>(
         &mut self,
         ctx: &mut W,
-        write_content: impl FnOnce(&mut Self, &mut W) -> Result<()>
+        write_content: impl FnOnce(&mut Self, &mut W::InnerCtx<'_>) -> Result<()>,
     ) -> Result<()> {
         let token = ctx.allocate_next_block(None, |ctx| {
             write_content(self, ctx)
@@ -232,11 +232,11 @@ impl<C: HeapCategory> CanWriteBox for FormatCgfx<C> {
 }
 
 impl<C: HeapCategory> CanWriteSlice for FormatCgfx<C> {
-    fn write_slice_of<T: 'static, W: WriteCtx>(
+    fn write_slice_of<T: 'static, W: WriteCtx<Cat = Self::Cat>>(
         &mut self,
         ctx: &mut W,
         values: &[T],
-        write_content: impl Fn(&mut Self, &mut W, &T) -> Result<()>,
+        write_content: impl Fn(&mut Self, &mut W::InnerCtx<'_>, &T) -> Result<()>,
     ) -> Result<()> {
         (values.len() as u32).to_writer(ctx, self)?;
         let item_ids_token = ctx.allocate_next_block(None, |ctx| {
@@ -286,13 +286,13 @@ struct BoxedChild {
 }
 
 impl<D: CanWriteBox> Writable<D> for BoxedChild {
-    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
         domain.write_fallback(ctx, &self.id)?;
         domain.write_fallback(ctx, &self.visible)?;
         Ok(())
     }
     
-    fn to_writer(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+    fn to_writer(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
         domain.write_box_of(ctx, |domain, ctx| {
             self.to_writer_unboxed(ctx, domain)
         })
@@ -347,7 +347,7 @@ impl<D: CanRead<String> + CanReadVec> Readable<D> for Npc {
 }
 
 impl<D: CanWrite<str> + CanWriteSlice + CanWriteBox> Writable<D> for Npc {
-    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx, domain: &mut D) -> Result<()> {
+    fn to_writer_unboxed(&self, ctx: &mut impl WriteCtx<Cat = D::Cat>, domain: &mut D) -> Result<()> {
         // TODO: i don't know how this could be implemented with derive
         // TODO: i also don't know if there is any benefit of this over String
         domain.write(ctx, &self.name)?;
