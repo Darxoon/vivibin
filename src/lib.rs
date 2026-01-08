@@ -432,23 +432,6 @@ impl<C: HeapCategory> WriteCtxImpl<C> {
             heaps: IndexMap::new(),
         }
     }
-    
-    pub fn to_buffer<D: WriteDomain<Cat = C>>(mut self, domain: &mut D, mut block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
-        let mut writer = WriteCtxWriter::default();
-        
-        self.heaps.insert(C::default(), Some(self.default_heap));
-        
-        let mut heaps = self.heaps.iter().collect::<Vec<_>>();
-        heaps.sort_by_key(|(category, _)| *category);
-        
-        for (_, heap) in heaps {
-            if let Some(heap) = heap {
-                heap.to_writer(&mut writer, domain, block_offsets.as_deref_mut())?;
-            }
-        }
-        
-        Ok(writer.into_inner())
-    }
 }
 
 impl<C: HeapCategory> Default for WriteCtxImpl<C> {
@@ -828,47 +811,6 @@ impl<W: Writer> WriteHeap<W> {
         }
         
         self.heap_token_at_current_pos_inner(heap_id)
-    }
-}
-
-impl WriteHeap<WriteCtxWriter> {
-    pub fn to_buffer(&self, domain: &mut impl WriteDomain, block_offsets: Option<&mut Vec<usize>>) -> Result<Vec<u8>> {
-        let mut writer = WriteCtxWriter::default();
-        // TODO: migrate this to HeapResolver
-        self.to_writer(&mut writer, domain, block_offsets)?;
-        Ok(writer.into_inner())
-    }
-    
-    #[deprecated]
-    pub fn to_writer(&self, writer: &mut WriteCtxWriter, domain: &mut impl WriteDomain, mut block_offsets: Option<&mut Vec<usize>>) -> Result<()> {
-        let mut all_relocations: Vec<(usize, HeapToken)> = Vec::new();
-        
-        for (block_id, block) in self.blocks.iter().enumerate() {
-            let block_start = Cursor::position(writer) as usize;
-            if let Some(block_offsets) = block_offsets.as_mut() {
-                block_offsets.push(block_start);
-            }
-            writer.write_all(block.writer.get_ref())?;
-            
-            // apply previous relocations
-            let all_relocations_to_current = all_relocations.extract_if(.., |(_, token)| {
-                token.block_id as usize == block_id
-            });
-            
-            for (offset, token) in all_relocations_to_current {
-                let writer_pos = Cursor::position(writer);
-                writer.set_position(offset as u64);
-                
-                domain.apply_reference(writer, block_start + token.offset as usize)?;
-                
-                writer.set_position(writer_pos);
-            }
-            
-            // push new relocations
-            all_relocations.extend(block.relocations.iter().copied()
-                .map(|(local_offset, token)| (block_start + local_offset, token)));
-        }
-        Ok(())
     }
 }
 
